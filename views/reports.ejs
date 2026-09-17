@@ -74,7 +74,7 @@
 
       <!-- Generate Report Button -->
       <div class="card">
-        <button class="generate-btn" onclick="generateReport()"><i class="ri-file-chart-line"></i> Generate Report</button>
+        <button type="button" class="generate-btn" onclick="generateReport()"><i class="ri-file-chart-line"></i> Generate Report</button>
       </div>
     </main>
   </div>
@@ -164,8 +164,51 @@
     loadReportData();
 
     // Generate Report Button
-    function generateReport() {
-      alert("Report generated successfully! (You can extend this to export PDF/CSV)");
+    async function generateReport() {
+      const button = document.querySelector('.generate-btn');
+      const originalLabel = button ? button.innerHTML : '';
+
+      try {
+        if (button) {
+          button.disabled = true;
+          button.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Generating...';
+        }
+
+        const response = await fetch('/auth/reports/export.csv', {
+          credentials: 'same-origin',
+          headers: { Accept: 'text/csv' }
+        });
+
+        if (!response.ok) {
+          let message = 'Unable to generate report';
+          try {
+            const payload = await response.json();
+            message = payload.message || message;
+          } catch (_) {}
+          throw new Error(message);
+        }
+
+        const blob = await response.blob();
+        const downloadUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = `my_reports_${new Date().toISOString().slice(0, 10)}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(downloadUrl);
+      } catch (err) {
+        if (window.showFeedbackToast) {
+          window.showFeedbackToast(err.message || 'Unable to generate report', 'error');
+        } else {
+          alert(err.message || 'Unable to generate report');
+        }
+      } finally {
+        if (button) {
+          button.disabled = false;
+          button.innerHTML = originalLabel;
+        }
+      }
     }
   </script>
 </body>

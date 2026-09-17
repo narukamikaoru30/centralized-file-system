@@ -310,6 +310,38 @@ router.get("/reports/data", requireAuth({ mode: "json" }), async (req, res) => {
   }
 });
 
+// -------------------- REPORTS CSV EXPORT --------------------
+router.get("/reports/export.csv", requireAuth({ mode: "json" }), async (req, res) => {
+  try {
+    const user = req.user;
+    const reports = await Report.find({ owner: user._id })
+      .sort({ date: -1 })
+      .limit(5000)
+      .lean();
+
+    const { Parser } = require("json2csv");
+    const fields = ["filename", "action", "date", "user", "branch"];
+    const rows = reports.map((report) => ({
+      filename: report.filename || "",
+      action: report.action || "",
+      date: report.date || "",
+      user: report.user || "",
+      branch: report.branch || user.branch || "N/A"
+    }));
+    const csv = rows.length
+      ? new Parser({ fields }).parse(rows)
+      : `${fields.join(",")}\r\n`;
+    const safeFilename = `my_reports_${new Date().toISOString().slice(0, 10)}.csv`;
+
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${safeFilename}"`);
+    return res.send(csv);
+  } catch (err) {
+    console.error("Reports CSV export error:", err.message);
+    return res.status(500).json({ success: false, message: "Unable to generate CSV report" });
+  }
+});
+
 // -------------------- NOTIFICATIONS PAGE --------------------
 router.get("/notifications", requireAuth({ mode: "redirect", message: "Please log in" }), async (req, res) => {
   try {
