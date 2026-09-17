@@ -34,6 +34,9 @@ const CONTENT_KEYWORDS = {
 
 // Learned weight adjustments from user feedback (in-memory cache, populated from DB)
 let feedbackWeights = {};
+let isLoadingWeights = false;
+let weightLoadPromise = null;
+const logger = require('../utils/logger');
 
 // Category definitions matching the system's ALLOWED_FILETYPES
 const CATEGORY_RULES = {
@@ -420,29 +423,49 @@ function readTextContent(filePath, mimeType) {
 /**
  * Load feedback weights from CategoryFeedback collection
  * Aggregates user corrections to bias future categorization
+ * Uses locking to prevent concurrent load race conditions
  * @returns {Promise<void>}
  */
 async function loadFeedbackWeights() {
-  try {
-    const CategoryFeedback = require('../models/CategoryFeedback');
-    const pipeline = [
-      { $group: {
-        _id: { mimeType: '$mimeType', correctedCategory: '$correctedCategory' },
-        count: { $sum: 1 }
-      }},
-      { $sort: { count: -1 } }
-    ];
-    const results = await CategoryFeedback.aggregate(pipeline);
-    const weights = {};
-    for (const r of results) {
-      const key = r._id.mimeType;
-      if (!weights[key]) weights[key] = {};
-      weights[key][r._id.correctedCategory] = (weights[key][r._id.correctedCategory] || 0) + r.count;
-    }
-    feedbackWeights = weights;
-  } catch (_) {
-    // Silently skip if DB not available
+  // If already loading, wait for in-flight request
+  if (isLoadingWeights && weightLoadPromise) {
+    return weightLoadPromise;
   }
+
+  // If not loading, start a new load
+  if (!isLoadingWeights) {
+    isLoadingWeights = true;
+    
+    weightLoadPromise = (async () => {
+      try {
+        const CategoryFeedback = require('../models/CategoryFeedback');
+        const pipeline = [
+          { $group: {
+            _id: { mimeType: '$mimeType', correctedCategory: '$correctedCategory' },
+            count: { $sum: 1 }
+          }},
+          { $sort: { count: -1 } }
+        ];
+        const results = await CategoryFeedback.aggregate(pipeline);
+        const weights = {};
+        for (const r of results) {
+          const key = r._id.mimeType;
+          if (!weights[key]) weights[key] = {};
+          weights[key][r._id.correctedCategory] = (weights[key][r._id.correctedCategory] || 0) + r.count;
+        }
+        // Only update after all data is aggregated (atomic assignment)
+        feedbackWeights = weights;
+        logger.info('[AI Categorizer] Feedback weights loaded', { mimeTypes: Object.keys(weights).length });
+      } catch (err) {
+        logger.warn('[AI Categorizer] Failed to load feedback weights', { error: err.message });
+      } finally {
+        isLoadingWeights = false;
+        weightLoadPromise = null;
+      }
+    })();
+  }
+
+  return weightLoadPromise;
 }
 
 /**

@@ -242,6 +242,9 @@ router.post("/login", loginLimiter, async (req, res) => {
 
     const sid = ensureSessionId(req, res);
     const accessSigned = signAccessToken(user);
+    req.user = user;
+    req.actor = user;
+    req.actorEmail = user.email;
     setAccessCookie(res, accessSigned.token);
     await issueRefreshToken(req, res, user._id);
     setSessionFlash(sid, { type: "success", message: "Login successful" });
@@ -396,7 +399,7 @@ router.post("/reset-password/:token", resetPasswordLimiter, async (req, res) => 
 const OTPAuth = require("otpauth");
 const QRCode = require("qrcode");
 
-router.get("/2fa/setup", requireAuth({ mode: "redirect" }), async (req, res) => {
+router.get("/2fa/setup", twoFALimiter, requireAuth({ mode: "redirect" }), async (req, res) => {
   const user = req.user;
   if (user.totpEnabled) {
     pushFlash(req, res, "error", "2FA is already enabled");
@@ -537,6 +540,9 @@ router.post("/2fa/verify", twoFALimiter, async (req, res) => {
   delete session.pendingTotpAt;
 
   const accessSigned = signAccessToken(user);
+  req.user = user;
+  req.actor = user;
+  req.actorEmail = user.email;
   setAccessCookie(res, accessSigned.token);
   await issueRefreshToken(req, res, user._id);
   setSessionFlash(sid, { type: "success", message: "Login successful" });
@@ -555,8 +561,12 @@ router.post("/2fa/disable", requireAuth({ mode: "redirect" }), async (req, res) 
     return res.status(400).json({ success: false, message: "Invalid password. 2FA was not disabled." });
   }
 
+  // Clear all 2FA-related data including backup codes
   user.totpEnabled = false;
   user.totpSecret = "";
+  if (user.backupCodes) {
+    user.backupCodes = [];
+  }
   await user.save();
 
   return res.json({ success: true, message: "Two-factor authentication has been disabled" });

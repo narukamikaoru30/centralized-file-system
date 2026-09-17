@@ -29,12 +29,15 @@
 
       <header class="dashboard-header">
         <div class="admin-user-info">
-          <img id="adminAvatar" src="<%= (typeof avatar !== 'undefined' && avatar) ? ('/uploads/' + avatar) : 'https://via.placeholder.com/56' %>" class="admin-avatar" alt="Admin Avatar" />
+          <img id="adminAvatar" src="" class="admin-avatar" alt="Admin Avatar" />
           <div>
             <h2 id="adminWelcomeName">Welcome, <%= fullname || 'Admin' %></h2>
             <p>
               <%= email %>
               <span id="adminTimeoutBadge" class="session-timeout-badge"><i class="ri-timer-line"></i> Session timeout: <%= (systemSettings && systemSettings.autoLogoutMinutes) ? systemSettings.autoLogoutMinutes : 30 %> min</span>
+              <span id="adminRoleBadge" class="admin-role-badge role-admin">
+                <i class="ri-shield-line"></i> Admin
+              </span>
             </p>
           </div>
         </div>
@@ -64,6 +67,68 @@
             <h3>Recent Uploads</h3>
             <p id="recentUploads">0</p>
           </div>
+          <div class="stat-card">
+            <i class="ri-calendar-event-line stat-icon"></i>
+            <h3>Next Month Forecast</h3>
+            <p id="predictedUploads">0</p>
+            <span id="predictedUploadsLabel" class="stat-caption">Next month</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="forecast-overview card">
+        <h2><i class="ri-bar-chart-box-line section-icon"></i> Upload Forecast</h2>
+        <div class="forecast-grid">
+          <div class="forecast-card compact">
+            <p class="forecast-title">Current month uploads</p>
+            <canvas id="uploadForecastChart" class="forecast-chart" width="400" height="200"></canvas>
+            <ul id="uploadForecastList" class="forecast-list">
+              <li>No forecast data available</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="analytics-overview">
+        <h2><i class="ri-line-chart-line section-icon"></i> Usage &amp; Growth</h2>
+        <div class="mini-metrics-grid">
+          <div class="mini-metric">
+            <span>Uploads this week</span>
+            <strong id="weeklyUploadsMetric">0</strong>
+          </div>
+          <div class="mini-metric">
+            <span>Current month</span>
+            <strong id="currentMonthMetric">0</strong>
+          </div>
+          <div class="mini-metric">
+            <span>Projected next month</span>
+            <strong id="nextMonthMetric">0</strong>
+          </div>
+          <div class="mini-metric">
+            <span>Active users</span>
+            <strong id="activeUsersMetric">0</strong>
+          </div>
+        </div>
+        <div class="chart-panel">
+          <canvas id="usageGrowthChart" height="180"></canvas>
+        </div>
+      </section>
+
+      <section class="engagement-overview">
+        <h2><i class="ri-user-heart-line section-icon"></i> File Activity &amp; Engagement</h2>
+        <div class="engagement-grid">
+          <div class="engagement-panel">
+            <h3>File category activity</h3>
+            <div id="engagementCategoryList" class="engagement-category-list" aria-live="polite">
+              <div class="empty-chart-state">Waiting for file activity...</div>
+            </div>
+          </div>
+          <div class="engagement-panel">
+            <h3>Recent activity feed</h3>
+            <ul id="engagementFeed" class="engagement-feed">
+              <li>Waiting for recent activity...</li>
+            </ul>
+          </div>
         </div>
       </section>
 
@@ -79,66 +144,83 @@
             <option value="excel">Excel</option>
             <option value="image">Images</option>
           </select>
-          <button onclick="filterFiles()"><i class="ri-filter-line"></i> Filter</button>
+          <button onclick="clearFilters()"><i class="ri-refresh-line"></i> Clear Filters</button>
         </div>
-
-        <table>
-          <colgroup>
-            <col style="width:25%">
-            <col style="width:10%">
-            <col style="width:20%">
-            <col style="width:15%">
-            <col style="width:10%">
-            <col style="width:20%">
-          </colgroup>
-          <thead>
-            <tr>
-              <th class="sortable" onclick="sortTable(0, 'fileTable')">File Name</th>
-              <th class="sortable" onclick="sortTable(1, 'fileTable')">Category</th>
-              <th class="sortable" onclick="sortTable(2, 'fileTable')">Uploaded By</th>
-              <th class="sortable" onclick="sortTable(3, 'fileTable')">Branch</th>
-              <th class="sortable" onclick="sortTable(4, 'fileTable')">Date</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="fileTable">
-          </tbody>
-        </table>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th class="sortable" onclick="sortTable(0, 'fileTable')">File Name</th>
+                <th class="sortable" onclick="sortTable(1, 'fileTable')">Category</th>
+                <th class="sortable" onclick="sortTable(2, 'fileTable')">Uploaded By</th>
+                <th class="sortable" onclick="sortTable(3, 'fileTable')">Branch</th>
+                <th class="sortable" onclick="sortTable(4, 'fileTable')">Date</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="fileTable">
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <!-- User Management -->
       <section class="user-management" id="users">
         <h2><i class="ri-group-line section-icon"></i> Manage Users</h2>
-        <table>
-          <thead>
-            <tr>
-              <th class="sortable" onclick="sortTable(0, 'userTable')">User ID</th>
-              <th class="sortable" onclick="sortTable(1, 'userTable')">Email</th>
-              <th>Role</th>
-              <th>Status</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="userTable">
-          </tbody>
-        </table>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th class="sortable" onclick="sortTable(0, 'userTable')">User ID</th>
+                <th class="sortable" onclick="sortTable(1, 'userTable')">Email</th>
+                <th>Role</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="userTable">
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <!-- Audit Logs -->
       <section class="audit-logs" id="audit">
         <h2><i class="ri-file-list-3-line section-icon"></i> Audit Logs</h2>
-        <table>
-          <thead>
-            <tr>
-              <th class="sortable" onclick="sortTable(0, 'auditTable')">Action</th>
-              <th class="sortable" onclick="sortTable(1, 'auditTable')">File/User</th>
-              <th class="sortable" onclick="sortTable(2, 'auditTable')">Performed By</th>
-              <th class="sortable" onclick="sortTable(3, 'auditTable')">Date</th>
-            </tr>
-          </thead>
-          <tbody id="auditTable">
-          </tbody>
-        </table>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th class="sortable" onclick="sortTable(0, 'auditTable')">Action</th>
+                <th class="sortable" onclick="sortTable(1, 'auditTable')">File/User</th>
+                <th class="sortable" onclick="sortTable(2, 'auditTable')">Performed By</th>
+                <th class="sortable" onclick="sortTable(3, 'auditTable')">Date</th>
+              </tr>
+            </thead>
+            <tbody id="auditTable">
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Recent Activity -->
+      <section class="reports" id="reports">
+        <h2><i class="ri-notification-3-line section-icon"></i> Recent Activity</h2>
+        <div class="activity-panel" id="recentActivityPanel">
+          <% if ((recentNotifications || []).length) { %>
+            <% recentNotifications.forEach(function(note) { %>
+              <div class="activity-item">
+                <div class="activity-icon"><%= note.icon || '🔔' %></div>
+                <div class="activity-body">
+                  <strong><%= note.message %></strong>
+                  <div class="activity-meta"><%= new Date(note.date).toLocaleString() %></div>
+                </div>
+              </div>
+            <% }) %>
+          <% } else { %>
+            <div class="activity-empty">No file activity yet.</div>
+          <% } %>
+        </div>
       </section>
 
       <!-- Reports -->
@@ -164,7 +246,7 @@
       </div>
       <div class="profile-body">
         <div class="profile-user">
-          <img id="adminProfileAvatar" src="<%= (typeof avatar !== 'undefined' && avatar) ? ('/uploads/' + avatar) : 'https://via.placeholder.com/56' %>" class="profile-avatar" alt="Admin Avatar" />
+          <img id="adminProfileAvatar" src="" class="profile-avatar" alt="Admin Avatar" />
           <div>
             <h4 id="adminProfileName"><%= fullname || 'Admin' %></h4>
             <p><%= email %></p>
@@ -205,6 +287,7 @@
   <div id="actionToast" class="action-toast" aria-live="polite"></div>
 
   <!-- JS (enhanced logic) -->
+  <script src="/vendor/chart.umd.js"></script>
   <script src="/js/requestHelpers.js"></script>
   <script src="/js/toast.js"></script>
   <script>
@@ -267,18 +350,39 @@
     }
 
     function getAdminAvatarUrl(avatarFilename) {
-      return avatarFilename ? `/uploads/${avatarFilename}` : 'https://via.placeholder.com/56';
+      if (!avatarFilename) return 'https://via.placeholder.com/56';
+      // Sanitize filename: allow only alphanumeric, dash, underscore, dot
+      const sanitized = String(avatarFilename).replace(/[^a-zA-Z0-9._-]/g, '_');
+      return `/uploads/${encodeURIComponent(sanitized)}`;
     }
 
-    function openAdminProfileModal() {
+    async function openAdminProfileModal() {
+      try {
+        // Fetch fresh profile data to avoid stale values in multi-tab scenario
+        const response = await fetch('/auth/user/profile');
+        const data = await response.json();
+        if (data.success) {
+          adminDisplayName = data.fullname || adminDisplayName;
+          adminAvatarFile = data.avatar || adminAvatarFile;
+        }
+      } catch (err) {
+        console.warn('Failed to fetch current profile, using cached values:', err);
+      }
+      
       const modal = document.getElementById('adminProfileModal');
       const headerAvatar = document.getElementById('adminAvatar');
       const profileAvatar = document.getElementById('adminProfileAvatar');
       const nameEl = document.getElementById('adminProfileName');
       const inputEl = document.getElementById('adminFullnameInput');
       const statusEl = document.getElementById('adminProfileStatus');
-      if (headerAvatar) headerAvatar.src = getAdminAvatarUrl(adminAvatarFile);
-      if (profileAvatar) profileAvatar.src = getAdminAvatarUrl(adminAvatarFile);
+      if (headerAvatar) {
+        headerAvatar.src = getAdminAvatarUrl(adminAvatarFile);
+        headerAvatar.onerror = function() { this.src = 'https://via.placeholder.com/56'; };
+      }
+      if (profileAvatar) {
+        profileAvatar.src = getAdminAvatarUrl(adminAvatarFile);
+        profileAvatar.onerror = function() { this.src = 'https://via.placeholder.com/56'; };
+      }
       if (nameEl) nameEl.textContent = adminDisplayName;
       if (inputEl) inputEl.value = adminDisplayName;
       if (statusEl) {
@@ -290,7 +394,22 @@
 
     function closeAdminProfileModal() {
       const modal = document.getElementById('adminProfileModal');
-      if (modal) modal.classList.remove('show');
+      if (modal) {
+        modal.classList.remove('show');
+        // Reset form state to avoid confusion with unsaved changes
+        const form = document.getElementById('adminProfileForm');
+        if (form) form.reset();
+        const statusEl = document.getElementById('adminProfileStatus');
+        if (statusEl) {
+          statusEl.textContent = '';
+          statusEl.className = 'profile-status';
+        }
+        // Reset inputs to current values
+        const fullnameEl = document.getElementById('adminFullnameInput');
+        if (fullnameEl) fullnameEl.value = adminDisplayName;
+        const photoEl = document.getElementById('adminPhotoInput');
+        if (photoEl) photoEl.value = '';
+      }
     }
 
     function openActionConfirm(title, message, confirmText, variant, onConfirm) {
@@ -335,11 +454,31 @@
       }, 3000);
     }
 
+    function getExtensionCategory(filename) {
+      const ext = String(filename || '').toLowerCase().split('.').pop();
+      if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'].includes(ext)) return 'image';
+      if (ext === 'pdf') return 'pdf';
+      if (ext === 'docx' || ext === 'doc') return 'docx';
+      if (['xls', 'xlsx', 'csv'].includes(ext)) return 'excel';
+      return 'other';
+    }
+
+    function getCategoryLabel(category) {
+      return ({ pdf: 'PDF', docx: 'DOCX', excel: 'EXCEL', image: 'IMAGE' })[category] || 'OTHER';
+    }
+
+    function formatDashboardDate(value) {
+      if (!value) return '—';
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? '—' : date.toISOString().split('T')[0];
+    }
+
     document.addEventListener('DOMContentLoaded', function() {
       const adminAvatarEl = document.getElementById('adminAvatar');
       const adminWelcomeNameEl = document.getElementById('adminWelcomeName');
       if (adminAvatarEl) {
         adminAvatarEl.src = getAdminAvatarUrl(adminAvatarFile);
+        adminAvatarEl.onerror = function() { this.src = 'https://via.placeholder.com/56'; };
         adminAvatarEl.addEventListener('click', openAdminProfileModal);
       }
       if (adminWelcomeNameEl) adminWelcomeNameEl.textContent = `Welcome, ${adminDisplayName}`;
@@ -385,6 +524,13 @@
 
           const selectedPhoto = photoEl?.files?.[0];
           if (selectedPhoto) {
+            // Validate file extension matches allowed types
+            const ext = selectedPhoto.name.toLowerCase().split('.').pop();
+            const ALLOWED_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+            if (!ALLOWED_EXTS.includes(ext)) {
+              if (statusEl) { statusEl.textContent = 'Invalid file extension. Allowed: JPG, PNG, GIF, WEBP'; statusEl.className = 'profile-status error'; }
+              return;
+            }
             if (!PROFILE_PHOTO_ALLOWED_TYPES.includes(selectedPhoto.type)) {
               if (statusEl) { statusEl.textContent = 'Only JPG, PNG, GIF, or WEBP images are allowed.'; statusEl.className = 'profile-status error'; }
               return;
@@ -399,6 +545,9 @@
           formData.append('fullname', fullname);
           if (selectedPhoto) formData.append('profilePhoto', selectedPhoto);
 
+          // Disable all inputs during save
+          const inputsToDisable = [fullnameEl, photoEl];
+          inputsToDisable.forEach(inp => { if (inp) inp.disabled = true; });
           if (saveBtn) saveBtn.disabled = true;
           if (statusEl) { statusEl.textContent = 'Saving profile...'; statusEl.className = 'profile-status'; }
 
@@ -422,155 +571,211 @@
           } catch (err) {
             if (statusEl) { statusEl.textContent = err.message || 'Unable to update profile'; statusEl.className = 'profile-status error'; }
           } finally {
+            // Re-enable inputs after save
+            const inputsToDisable = [fullnameEl, photoEl];
+            inputsToDisable.forEach(inp => { if (inp) inp.disabled = false; });
             if (saveBtn) saveBtn.disabled = false;
           }
         });
       }
-    });
 
-    function getExtensionCategory(filename) {
-      const ext = (filename || '').toLowerCase().split('.').pop();
-      if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'].includes(ext)) return 'image';
-      if (ext === 'pdf') return 'pdf';
-      if (ext === 'docx' || ext === 'doc') return 'docx';
-      if (['xls', 'xlsx', 'csv'].includes(ext)) return 'excel';
-      return 'other';
-    }
-
-    function getCategoryLabel(category) {
-      if (category === 'pdf') return 'PDF';
-      if (category === 'docx') return 'DOCX';
-      if (category === 'excel') return 'EXCEL';
-      if (category === 'image') return 'IMAGE';
-      return 'OTHER';
-    }
-
-    // Initialize dashboard with real stats
-    document.addEventListener('DOMContentLoaded', function() {
+      // ===== DASHBOARD STATS AND TABLES SETUP =====
+      // Initialize dashboard with real stats
       // Update stats with passed data from backend
       const stats = <%- JSON.stringify(stats || {}) %>;
       document.getElementById('totalFiles').textContent = stats.totalFiles || '0';
       document.getElementById('totalUsers').textContent = stats.totalUsers || '0';
       document.getElementById('activeAdmins').textContent = stats.activeAdmins || '0';
       document.getElementById('recentUploads').textContent = stats.recentUploads || '0';
-      
-      // Populate files table from backend data
-      const filesData = <%- JSON.stringify(files || []) %>;
-      const fileTable = document.getElementById('fileTable');
-      fileTable.innerHTML = '';
-      if (filesData && filesData.length > 0) {
-        filesData.forEach((file, index) => {
-          const row = document.createElement('tr');
-          row.style.setProperty('--row-index', index);
-          const extCategory = getExtensionCategory(file.filename);
-          row.setAttribute('data-category', extCategory);
-          const ownerName = file.owner ? file.owner.fullname : 'Unknown';
-          const ownerEmail = file.owner ? file.owner.email : 'N/A';
-          const branchName = file.branch || (file.owner && file.owner.branch) || 'N/A';
-          const uploadDate = new Date(file.uploadedAt).toLocaleDateString();
-          const displayName = file.originalName || file.filename;
-          row.innerHTML = `
-            <td title="${escapeHtml(displayName)}">${escapeHtml(displayName)}</td>
-            <td>${getCategoryLabel(extCategory)}</td>
-            <td>${escapeHtml(ownerName)} (${escapeHtml(ownerEmail)})</td>
-            <td>${escapeHtml(branchName)}</td>
-            <td>${escapeHtml(uploadDate)}</td>
-            <td class="actions-cell">
-              <button onclick="viewAdminFile(${escapeHtml(JSON.stringify(file.filename))})">
-              <i class="ri-eye-line"></i> View</button>
-              <button onclick="downloadAdminFile(${escapeHtml(JSON.stringify(file.filename))})">
-              <i class="ri-download-line"></i> Download</button>
-              <button onclick="deleteAdminFile(${escapeHtml(JSON.stringify(file._id))})">
-              <i class="ri-delete-bin-line"></i> Delete</button>
-            </td>
-          `;
-          fileTable.appendChild(row);
-        });
-      } else {
-        const emptyRow = document.createElement('tr');
-        emptyRow.innerHTML = '<td colspan="6">No files uploaded yet.</td>';
-        fileTable.appendChild(emptyRow);
+      document.getElementById('predictedUploads').textContent = stats.predictedNextMonthUploads || '0';
+      document.getElementById('predictedUploadsLabel').textContent = stats.predictedNextMonthLabel || 'Next month';
+      const forecastListEl = document.getElementById('uploadForecastList');
+      const forecastChartEl = document.getElementById('uploadForecastChart');
+      const forecastItems = Array.isArray(stats.uploadForecast) ? stats.uploadForecast : [];
+
+      if (forecastListEl) {
+        forecastListEl.innerHTML = forecastItems.length
+          ? forecastItems.map(item => `<li><strong>${escapeHtml(item.label)}:</strong> ${Number(item.count)}</li>`).join('')
+          : '<li>No forecast data available</li>';
       }
+
+      if (forecastChartEl && window.Chart) {
+        const labels = forecastItems.map(item => item.label);
+        const dataPoints = forecastItems.map(item => Number(item.count));
+
+        if (window.uploadForecastChartInstance) {
+          window.uploadForecastChartInstance.destroy();
+        }
+
+        window.uploadForecastChartInstance = new Chart(forecastChartEl, {
+          type: 'bar',
+          data: {
+            labels,
+            datasets: [{
+              label: 'Uploads',
+              data: dataPoints,
+              backgroundColor: 'rgba(51, 102, 255, 0.45)',
+              borderColor: 'rgba(51, 102, 255, 0.9)',
+              borderWidth: 1
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              y: { beginAtZero: true, ticks: { precision: 0 } }
+            }
+          }
+        });
+      }
+
+      const filesData = <%- JSON.stringify(files || []) %>;
+      const usersData = <%- JSON.stringify(users || []) %>;
+      const auditLogsData = <%- JSON.stringify(auditLogs || []) %>;
+
+      function summarizeCategoryActivity(fileList) {
+        const summary = {};
+        fileList.forEach(file => {
+          const rawName = file.originalName || file.filename || '';
+          const category = getExtensionCategory(rawName);
+          summary[category] = (summary[category] || 0) + 1;
+        });
+
+        return Object.entries(summary).map(([category, count]) => ({
+          category,
+          label: getCategoryLabel(category),
+          count
+        }));
+      }
+
+      function renderUsageGrowthInsights(currentStats, fileList) {
+        const currentMonthUploads = Number(currentStats?.currentMonthUploads || 0);
+        const nextMonthUploads = Number(currentStats?.predictedNextMonthUploads || 0);
+        const weeklyUploads = Array.isArray(currentStats?.uploadForecast)
+          ? currentStats.uploadForecast.slice(-7).reduce((sum, item) => sum + Number(item.count || 0), 0)
+          : 0;
+        const activeUsers = Number(document.getElementById('totalUsers')?.textContent || 0);
+
+        const weeklyEl = document.getElementById('weeklyUploadsMetric');
+        const currentMonthEl = document.getElementById('currentMonthMetric');
+        const nextMonthEl = document.getElementById('nextMonthMetric');
+        const activeUsersEl = document.getElementById('activeUsersMetric');
+
+        if (weeklyEl) weeklyEl.textContent = weeklyUploads;
+        if (currentMonthEl) currentMonthEl.textContent = currentMonthUploads;
+        if (nextMonthEl) nextMonthEl.textContent = nextMonthUploads;
+        if (activeUsersEl) activeUsersEl.textContent = activeUsers;
+
+        const usageCanvas = document.getElementById('usageGrowthChart');
+        if (usageCanvas && window.Chart) {
+          const forecastData = Array.isArray(currentStats?.uploadForecast) ? currentStats.uploadForecast : [];
+          const labels = forecastData.map(item => item.label || '');
+          const values = forecastData.map(item => Number(item.count || 0));
+          const hasData = labels.length > 0 && values.some(value => value > 0);
+
+          const usageWrap = usageCanvas.parentElement;
+          const existingUsageEmpty = usageWrap?.querySelector('.empty-chart-state');
+          if (existingUsageEmpty) existingUsageEmpty.remove();
+          usageCanvas.style.display = 'block';
+
+          if (window.usageGrowthChartInstance) {
+            window.usageGrowthChartInstance.destroy();
+          }
+
+          if (!hasData) {
+            usageCanvas.style.display = 'none';
+            if (usageWrap) {
+              const emptyState = document.createElement('div');
+              emptyState.className = 'empty-chart-state';
+              emptyState.textContent = 'No upload activity yet. Once files are uploaded, the usage trend will appear here.';
+              usageWrap.appendChild(emptyState);
+            }
+          } else {
+            window.usageGrowthChartInstance = new Chart(usageCanvas, {
+              type: 'line',
+              data: {
+                labels,
+                datasets: [{
+                  label: 'Uploads',
+                  data: values,
+                  borderColor: '#d4af37',
+                  backgroundColor: 'rgba(212, 175, 55, 0.15)',
+                  borderWidth: 3,
+                  tension: 0.35,
+                  fill: true
+                }]
+              },
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                  y: { beginAtZero: true, ticks: { precision: 0 } }
+                },
+                plugins: { legend: { display: false } }
+              }
+            });
+          }
+        }
+
+        const engagementList = document.getElementById('engagementCategoryList');
+        if (engagementList) {
+          const categorySummary = summarizeCategoryActivity(fileList);
+          const totalFiles = categorySummary.reduce((sum, item) => sum + item.count, 0);
+          engagementList.innerHTML = '';
+
+          if (!categorySummary.length || totalFiles === 0) {
+            engagementList.innerHTML = '<div class="empty-chart-state">No file activity yet. Uploads will appear here once users start sharing files.</div>';
+          } else {
+            categorySummary
+              .sort((a, b) => b.count - a.count)
+              .forEach(item => {
+                const percentage = Math.round((item.count / totalFiles) * 100);
+                const row = document.createElement('div');
+                row.className = 'engagement-category-row';
+                row.innerHTML = `
+                  <div class="engagement-category-heading">
+                    <span>${escapeHtml(item.label)}</span>
+                    <strong>${item.count} <small>${percentage}%</small></strong>
+                  </div>
+                  <div class="engagement-category-track" aria-hidden="true">
+                    <span style="width: ${percentage}%"></span>
+                  </div>
+                `;
+                engagementList.appendChild(row);
+              });
+          }
+        }
+
+        const activityFeed = document.getElementById('engagementFeed');
+        if (activityFeed) {
+          const feedItems = Array.isArray(currentStats?.uploadForecast) && currentStats.uploadForecast.length
+            ? currentStats.uploadForecast.slice(-3).map(item => `Uploads in ${item.label}: ${item.count}`)
+            : ['No usage data available yet.'];
+
+          activityFeed.innerHTML = feedItems.map(item => `<li>${escapeHtml(item)}</li>`).join('');
+        }
+      }
+
+      repopulateFileTable(filesData);
+      repopulateUserTable(usersData);
+      repopulateAuditTable(auditLogsData);
+      renderUsageGrowthInsights(stats, filesData);
+      // The API provides fresh data even if the values passed to this template are stale.
+      refreshDashboardData({ silent: true });
 
       const fileSearchInput = document.getElementById('fileSearch');
       const fileCategoryFilter = document.getElementById('fileCategoryFilter');
+      let searchTimeout = null;
       if (fileSearchInput) {
-        fileSearchInput.addEventListener('input', filterFiles);
+        fileSearchInput.addEventListener('input', (e) => {
+          clearTimeout(searchTimeout);
+          searchTimeout = setTimeout(() => filterFiles(), 300);
+        });
       }
       if (fileCategoryFilter) {
         fileCategoryFilter.addEventListener('change', filterFiles);
       }
 
-      // Populate users table from backend data
-      const usersData = <%- JSON.stringify(users || []) %>;
-      const userTable = document.getElementById('userTable');
-      userTable.innerHTML = '';
-      const manageableUsers = Array.isArray(usersData)
-        ? usersData.filter(user => {
-            if (currentAdminRole === 'super_admin') {
-              return user.role === 'user' || user.role === 'admin';
-            }
-            return user.role === 'user';
-          })
-        : [];
-      if (manageableUsers.length > 0) {
-        manageableUsers.forEach((user, index) => {
-          const row = document.createElement('tr');
-          row.style.setProperty('--row-index', index);
-          const roleSelectId = `role-${user._id}`;
-          const roleLabel = user.role === 'admin' ? 'Admin' : 'User';
-          const roleCell = currentAdminRole === 'super_admin'
-            ? `<select id="${escapeHtml(roleSelectId)}" class="role-select">
-                 <option value="user" ${user.role === 'user' ? 'selected' : ''}>User</option>
-                 <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>Admin</option>
-               </select>`
-            : escapeHtml(roleLabel);
-          const roleActionButton = currentAdminRole === 'super_admin'
-            ? `<button onclick="updateAdminRole(${escapeHtml(JSON.stringify(user._id))}, document.getElementById(${escapeHtml(JSON.stringify(roleSelectId))}).value)"><i class="ri-refresh-line"></i> Update Role</button>`
-            : '';
-          row.innerHTML = `
-            <td>${escapeHtml(user._id)}</td>
-            <td>${escapeHtml(user.email)}</td>
-            <td>${roleCell}</td>
-            <td></td>
-            <td>
-              <button onclick="deactivateAdminUser(${escapeHtml(JSON.stringify(user._id))})"><i class="ri-forbid-line"></i> Deactivate</button>
-              ${roleActionButton}
-            </td>
-          `;
-          userTable.appendChild(row);
-        });
-      } else {
-        const emptyRow = document.createElement('tr');
-        emptyRow.innerHTML = currentAdminRole === 'super_admin'
-          ? '<td colspan="5">No users or admins available to manage.</td>'
-          : '<td colspan="5">No regular users available to manage.</td>';
-        userTable.appendChild(emptyRow);
-      }
-
-      // Populate audit logs from backend data
-      const auditLogsData = <%- JSON.stringify(auditLogs || []) %>;
-      const auditTable = document.getElementById('auditTable');
-      auditTable.innerHTML = '';
-      if (auditLogsData && auditLogsData.length > 0) {
-        auditLogsData.forEach((log, index) => {
-          const row = document.createElement('tr');
-          row.style.setProperty('--row-index', index);
-          const logDate = new Date(log.date).toLocaleDateString();
-          row.innerHTML = `
-            <td>${escapeHtml(log.action)}</td>
-            <td>${escapeHtml(log.filename)}</td>
-            <td>${escapeHtml(log.user)}</td>
-            <td>${escapeHtml(logDate)}</td>
-          `;
-          auditTable.appendChild(row);
-        });
-      } else {
-        const emptyRow = document.createElement('tr');
-        emptyRow.innerHTML = '<td colspan="4">No audit logs recorded yet.</td>';
-        auditTable.appendChild(emptyRow);
-      }
-      
       // Set animation delay for table rows
       document.querySelectorAll('tbody tr').forEach((row, index) => {
         row.style.setProperty('--row-index', index);
@@ -583,9 +788,14 @@
           this.classList.add('active');
         });
       });
-    });
+    }); // End of consolidated DOMContentLoaded
 
-    const currentAdminRole = '<%= role %>';
+    // Validate currentAdminRole with fallback
+    const currentAdminRole = '<%= role || "user" %>';
+    const validAdminRoles = ['user', 'admin', 'super_admin'];
+    if (!currentAdminRole || !validAdminRoles.includes(currentAdminRole)) {
+      console.warn('Invalid admin role detected:', currentAdminRole);
+    }
 
     // Table sorting functionality
     let sortOrder = {};
@@ -594,6 +804,12 @@
       const table = document.getElementById(tableId);
       const tbody = table.querySelector('tbody');
       const rows = Array.from(tbody.querySelectorAll('tr'));
+      
+      // Early return for empty table
+      if (rows.length === 0) {
+        return;
+      }
+      
       const header = table.querySelectorAll('th')[columnIndex];
       
       // Determine sort direction
@@ -643,7 +859,7 @@
         'View',
         'primary',
         function() {
-          window.open(`/uploads/${encodeURIComponent(fileName)}`, '_blank');
+          window.open(`/uploads/${encodeURIComponent(fileName)}?view=1`, '_blank');
         }
       );
     }
@@ -659,43 +875,259 @@
         'Download',
         'primary',
         function() {
+          const okBtn = document.getElementById('confirmOkBtn');
+          const originalText = okBtn.textContent;
+          okBtn.disabled = true;
+          okBtn.textContent = '📥 Downloading...';
+          showActionToast(`📥 Downloading ${fileName}...`, 'info');
+          
           const link = document.createElement('a');
-          link.href = `/uploads/${encodeURIComponent(fileName)}`;
+          link.href = `/uploads/${encodeURIComponent(fileName)}?download=1`;
           link.setAttribute('download', fileName);
           document.body.appendChild(link);
           link.click();
           link.remove();
+          
+          setTimeout(() => {
+            showActionToast('✅ Download complete', 'success');
+            okBtn.disabled = false;
+            okBtn.textContent = originalText;
+          }, 1000);
         }
       );
     }
 
-    const { requestJson, postNoBody, postJson } = window.RequestHelpers;
+    // Safe extraction of RequestHelpers with error handling
+    if (!window.RequestHelpers) {
+      console.error('RequestHelpers library failed to load - dashboard may be limited');
+      showActionToast('⚠️ Some dashboard features may not be available', 'error');
+    }
+    const { requestJson, postNoBody, postJson } = window.RequestHelpers || {
+      requestJson: async () => { throw new Error('Request helpers not loaded'); },
+      postNoBody: async () => { throw new Error('Request helpers not loaded'); },
+      postJson: async () => { throw new Error('Request helpers not loaded'); }
+    };
+
+    // Track concurrent file operations to prevent race conditions
+    let fileOperationInProgress = {};
+    let roleChangeInProgress = {};
+
+    function renderRecentNotifications(notifications) {
+      const panel = document.getElementById('recentActivityPanel');
+      if (!panel) return;
+
+      if (!Array.isArray(notifications) || notifications.length === 0) {
+        panel.innerHTML = '<div class="activity-empty">No file activity yet.</div>';
+        return;
+      }
+
+      panel.innerHTML = notifications.map((note) => {
+        const icon = note.icon || '🔔';
+        const message = escapeHtml(note.message || 'New file activity');
+        const date = note.date ? new Date(note.date).toLocaleString() : '';
+
+        return `
+          <div class="activity-item">
+            <div class="activity-icon">${icon}</div>
+            <div class="activity-body">
+              <strong>${message}</strong>
+              <div class="activity-meta">${date}</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // Refresh dashboard data via API instead of full page reload
+    async function refreshDashboardData({ silent = false } = {}) {
+      try {
+        if (!silent) showActionToast('Refreshing dashboard...', 'info');
+        const response = await fetch('/admin/dashboard/data', {
+          headers: { Accept: 'application/json' },
+          credentials: 'same-origin'
+        });
+        if (!response.ok) {
+          throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+        }
+        const data = await response.json();
+        
+        if (!data.success) {
+          throw new Error(data.message || 'Failed to fetch dashboard data');
+        }
+        
+        // Update stats
+        if (data.stats) {
+          document.getElementById('totalFiles').textContent = data.stats.totalFiles ?? '0';
+          document.getElementById('totalUsers').textContent = data.stats.totalUsers ?? '0';
+          document.getElementById('activeAdmins').textContent = data.stats.activeAdmins ?? '0';
+          document.getElementById('recentUploads').textContent = data.stats.recentUploads ?? '0';
+          document.getElementById('predictedUploads').textContent = data.stats.predictedNextMonthUploads ?? '0';
+          document.getElementById('predictedUploadsLabel').textContent = data.stats.predictedNextMonthLabel || 'Next month';
+        }
+        
+        // Refresh tables with updated data
+        repopulateFileTable(data.files);
+        repopulateUserTable(data.users);
+        repopulateAuditTable(data.auditLogs);
+        renderRecentNotifications(data.recentNotifications);
+        renderUsageGrowthInsights(data.stats || {}, data.files || []);
+        
+        if (!silent) showActionToast('Dashboard refreshed', 'success');
+      } catch (err) {
+        console.error('Failed to refresh dashboard data:', err);
+        if (!silent) showActionToast(`⚠️ Could not refresh data: ${err.message}. Try refreshing the page.`, 'error');
+        // Do NOT auto-reload; let user decide
+      }
+    }
+
+    function repopulateFileTable(filesData) {
+      const fileTable = document.getElementById('fileTable');
+      if (!fileTable) return;
+      fileTable.innerHTML = '';
+      if (filesData && filesData.length > 0) {
+        filesData.forEach((file, index) => {
+          const row = document.createElement('tr');
+          row.style.setProperty('--row-index', index);
+          const extCategory = getExtensionCategory(file.filename);
+          row.setAttribute('data-category', extCategory);
+          const ownerName = file.uploadedBy?.fullname || file.owner?.fullname || 'Unknown';
+          const ownerEmail = file.uploadedBy?.email || file.owner?.email || 'N/A';
+          const branchName = file.branch || file.uploadedBy?.branch || file.owner?.branch || 'N/A';
+          const uploadDate = formatDashboardDate(file.uploadedAt || file.createdAt);
+          const displayName = file.originalName || file.filename || 'Unnamed file';
+          row.innerHTML = `
+            <td title="${escapeHtml(displayName)}">${escapeHtml(displayName)}</td>
+            <td>${getCategoryLabel(extCategory)}</td>
+            <td>${escapeHtml(ownerName)} (${escapeHtml(ownerEmail)})</td>
+            <td>${escapeHtml(branchName)}</td>
+            <td>${escapeHtml(uploadDate)}</td>
+            <td class="actions-cell">
+              <button onclick="viewAdminFile(${escapeHtml(JSON.stringify(file.filename))})"><i class="ri-eye-line"></i> View</button>
+              <button onclick="downloadAdminFile(${escapeHtml(JSON.stringify(file.filename))})"><i class="ri-download-line"></i> Download</button>
+              <button onclick="deleteAdminFile(${escapeHtml(JSON.stringify(file._id))})"><i class="ri-delete-bin-line"></i> Delete</button>
+            </td>
+          `;
+          fileTable.appendChild(row);
+        });
+      } else {
+        const emptyRow = document.createElement('tr');
+        emptyRow.innerHTML = '<td colspan="6">No files uploaded yet.</td>';
+        fileTable.appendChild(emptyRow);
+      }
+    }
+
+    function repopulateUserTable(usersData) {
+      const userTable = document.getElementById('userTable');
+      if (!userTable) return;
+      userTable.innerHTML = '';
+      const manageableUsers = Array.isArray(usersData)
+        ? usersData.filter(user => user.role === 'user')
+        : [];
+      if (manageableUsers.length > 0) {
+        manageableUsers.forEach((user, index) => {
+          const row = document.createElement('tr');
+          row.style.setProperty('--row-index', index);
+          const roleLabel = 'User';
+          const userStatus = user.status || 'active';
+          const statusBadge = userStatus === 'active'
+            ? `<span class="badge badge-success">${escapeHtml(userStatus)}</span>`
+            : `<span class="badge badge-danger">${escapeHtml(userStatus)}</span>`;
+          row.innerHTML = `
+            <td>${escapeHtml(user._id)}</td>
+            <td>${escapeHtml(user.email)}</td>
+            <td>${escapeHtml(roleLabel)}</td>
+            <td>${statusBadge}</td>
+            <td>
+              <button onclick="deactivateAdminUser(${escapeHtml(JSON.stringify(user._id))})"><i class="ri-forbid-line"></i> Deactivate</button>
+            </td>
+          `;
+          userTable.appendChild(row);
+        });
+      } else {
+        const emptyRow = document.createElement('tr');
+        emptyRow.innerHTML = '<td colspan="5">No regular users available to manage.</td>';
+        userTable.appendChild(emptyRow);
+      }
+    }
+
+    function repopulateAuditTable(auditLogsData) {
+      const auditTable = document.getElementById('auditTable');
+      if (!auditTable) return;
+      auditTable.innerHTML = '';
+      if (auditLogsData && auditLogsData.length > 0) {
+        auditLogsData.forEach((log, index) => {
+          const row = document.createElement('tr');
+          row.style.setProperty('--row-index', index);
+          // Handle both AuditLog model (with timestamp, user object) and old Report model
+          const logDate = formatDashboardDate(log.timestamp || log.date || log.createdAt);
+          const userName = typeof log.user === 'object' && log.user?.fullname 
+            ? log.user.fullname 
+            : (typeof log.user === 'string' ? log.user : 'Unknown User');
+          const fileOrTarget = log.details || log.filename || 'N/A';
+          row.innerHTML = `
+            <td>${escapeHtml(log.action || 'N/A')}</td>
+            <td>${escapeHtml(fileOrTarget)}</td>
+            <td>${escapeHtml(userName)}</td>
+            <td>${escapeHtml(logDate)}</td>
+          `;
+          auditTable.appendChild(row);
+        });
+      } else {
+        const emptyRow = document.createElement('tr');
+        emptyRow.innerHTML = '<td colspan="4">No audit logs recorded yet.</td>';
+        auditTable.appendChild(emptyRow);
+      }
+    }
 
     function deleteAdminFile(fileId) {
+      if (fileOperationInProgress[fileId]) {
+        showActionToast('⏳ Operation already in progress for this file', 'warn');
+        return;
+      }
       openActionConfirm(
         'Delete File',
         'Do you want to delete this file?\n\nThis action cannot be undone.',
         'Delete',
         'danger',
         async function() {
+          fileOperationInProgress[fileId] = true;
+          const okBtn = document.getElementById('confirmOkBtn');
+          const originalText = okBtn.textContent;
+          okBtn.disabled = true;
+          okBtn.textContent = '⏳ Deleting...';
+          
           try {
             const data = await postNoBody(`/admin/file/delete/${fileId}`);
             if (data.success) {
               showActionToast(data.message, 'success');
-              location.reload();
+              await refreshDashboardData();
             } else {
               showActionToast(data.message, 'error');
             }
           } catch (err) {
             showActionToast(err.message || 'Delete failed', 'error');
+          } finally {
+            okBtn.disabled = false;
+            okBtn.textContent = originalText;
+            delete fileOperationInProgress[fileId];
           }
         }
       );
     }
 
     function updateAdminRole(userId, newRole) {
+      if (roleChangeInProgress[userId]) {
+        showActionToast('⏳ Role change already in progress', 'warn');
+        return;
+      }
       if (currentAdminRole !== 'super_admin') {
         showActionToast('Only Super Admin can manage user roles.', 'error');
+        return;
+      }
+      // Validate role is one of the allowed values
+      const validRoles = ['user', 'admin'];
+      if (!validRoles.includes(newRole)) {
+        showActionToast('❌ Invalid role selected', 'error');
         return;
       }
       const roleEmoji = { 'user': 'User', 'admin': 'Admin', 'super_admin': 'Super Admin' };
@@ -705,17 +1137,27 @@
         'Update',
         'primary',
         async function() {
+          roleChangeInProgress[userId] = true;
+          const okBtn = document.getElementById('confirmOkBtn');
+          const originalText = okBtn.textContent;
+          okBtn.disabled = true;
+          okBtn.textContent = '⏳ Updating...';
+          
           try {
             const data = await postJson('/admin/user/role', { userId, role: newRole });
             if (data.success) {
               addAudit('Role Updated', `${userId} → ${newRole}`);
               showActionToast(`Role updated to ${roleEmoji[newRole]} ${newRole}`, 'success');
-              location.reload();
+              await refreshDashboardData();
             } else {
               showActionToast(data.message, 'error');
             }
           } catch (err) {
             showActionToast(err.message || 'Role update failed', 'error');
+          } finally {
+            okBtn.disabled = false;
+            okBtn.textContent = originalText;
+            delete roleChangeInProgress[userId];
           }
         }
       );
@@ -728,17 +1170,25 @@
         'Deactivate',
         'danger',
         async function() {
+          const okBtn = document.getElementById('confirmOkBtn');
+          const originalText = okBtn.textContent;
+          okBtn.disabled = true;
+          okBtn.textContent = '⏳ Deactivating...';
+          
           try {
             const data = await postNoBody(`/admin/user/deactivate/${userId}`);
             if (data.success) {
               addAudit('User Deactivated', userId);
               showActionToast('User deactivated', 'success');
-              location.reload();
+              await refreshDashboardData();
             } else {
               showActionToast(data.message, 'error');
             }
           } catch (err) {
             showActionToast(err.message || 'Deactivation failed', 'error');
+          } finally {
+            okBtn.disabled = false;
+            okBtn.textContent = originalText;
           }
         }
       );
@@ -776,6 +1226,12 @@
       });
     }
 
+    function clearFilters() {
+      document.getElementById('fileSearch').value = '';
+      document.getElementById('fileCategoryFilter').value = 'all';
+      filterFiles();
+    }
+
     function addAudit(action, target) {
       const row = document.createElement('tr');
       const today = new Date().toISOString().split('T')[0];
@@ -788,7 +1244,7 @@
       const tdTarget = document.createElement('td');
       tdTarget.textContent = target;
       const tdUser = document.createElement('td');
-      tdUser.textContent = '<%= fullname || "Admin" %>';
+      tdUser.textContent = adminDisplayName || 'Admin';  // Use dynamic value instead of hardcoded
       const tdDate = document.createElement('td');
       tdDate.textContent = today;
       row.appendChild(tdAction);

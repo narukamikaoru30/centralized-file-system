@@ -25,12 +25,23 @@ const fileSchema = new mongoose.Schema({
   versions: [fileVersionSchema],
   version: { type: Number, default: 1 },
 
-  // File Sharing
-  sharedWith: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+  // File Sharing - 🔐 Fix #8: Track expiry and revocation
+  sharedWith: [{
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    sharedAt: { type: Date, default: Date.now },
+    expiresAt: { type: Date, default: null },  // null = no expiry
+    revoked: { type: Boolean, default: false }
+  }],
 
   // Recycle Bin (soft delete)
   deleted: { type: Boolean, default: false },
-  deletedAt: { type: Date, default: null }
+  deletedAt: { type: Date, default: null },
+
+  // Blockchain Integration
+  blockchainHash: { type: String, default: null, index: true },
+  blockchainTxHash: { type: String, default: null, index: true },
+  blockchainSynced: { type: Boolean, default: false },
+  blockchainRegisteredAt: { type: Date, default: null }
 });
 
 fileSchema.index({ owner: 1, filetype: 1, uploadedAt: -1, contentHash: 1 });

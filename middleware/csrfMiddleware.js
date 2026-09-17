@@ -4,12 +4,19 @@
  */
 
 const crypto = require("crypto");
-const { encrypt, decrypt } = require("../utils/encryption");
+const logger = require("../utils/logger");
 
 const CSRF_COOKIE_NAME = "cfs_csrf";
 const CSRF_HEADER_NAME = "x-csrf-token";
 const CSRF_TOKEN_LENGTH = 32;
 const CSRF_TOKEN_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+const DEBUG_CSRF = process.env.DEBUG_CSRF === "true";
+
+function maskToken(token) {
+  if (!token || typeof token !== "string") return null;
+  return token.length > 8 ? `${token.slice(0, 8)}...` : token;
+}
 
 /**
  * Generate a CSRF token
@@ -74,6 +81,25 @@ function parseCookies(cookieHeader) {
   return cookies;
 }
 
+function getSubmittedCsrfToken(req) {
+  return req.headers[CSRF_HEADER_NAME] || req.headers[CSRF_HEADER_NAME.toLowerCase()] ||
+    (req.body && req.body._csrf) ||
+    (req.query && req.query._csrf);
+}
+
+function validateCsrfTokenPair(cookieToken, submittedToken) {
+  if (!cookieToken || !submittedToken) {
+    return { valid: false, message: "CSRF token missing" };
+  }
+  if (cookieToken !== submittedToken) {
+    return { valid: false, message: "CSRF token mismatch" };
+  }
+  if (!isTokenValid(cookieToken)) {
+    return { valid: false, message: "CSRF token expired" };
+  }
+  return { valid: true };
+}
+
 /**
  * CSRF Protection Middleware
  * - Generates and attaches CSRF token for GET/HEAD/OPTIONS requests
@@ -116,47 +142,65 @@ function csrfProtection(options = {}) {
     
     // For state-changing methods, validate the token
     const cookieToken = cookies[CSRF_COOKIE_NAME];
-    const headerToken = req.headers[CSRF_HEADER_NAME] || req.headers[CSRF_HEADER_NAME.toLowerCase()];
-    const bodyToken = req.body && req.body._csrf;
-    const queryToken = req.query && req.query._csrf;
-    
-    const submittedToken = headerToken || bodyToken || queryToken;
-    
-    // Validate tokens match and are not expired
-    if (!cookieToken || !submittedToken) {
+    const submittedToken = getSubmittedCsrfToken(req);
+    const validation = validateCsrfTokenPair(cookieToken, submittedToken);
+
+    if (!validation.valid) {
       return res.status(403).json({
         success: false,
-        message: "CSRF token missing"
+        message: validation.message
       });
     }
-    
-    if (cookieToken !== submittedToken) {
-      return res.status(403).json({
-        success: false,
-        message: "CSRF token mismatch"
-      });
-    }
-    
-    if (!isTokenValid(cookieToken)) {
-      return res.status(403).json({
-        success: false,
-        message: "CSRF token expired"
-      });
-    }
-    
+
     // Generate new token after successful validation (token rotation)
     const newToken = generateCsrfToken();
     setCsrfCookie(res, newToken);
     res.locals.csrfToken = newToken;
     req.csrfToken = () => newToken;
-    
+
     return next();
   };
 }
 
 /**
- * Get CSRF token for AJAX requests
+ * Validate CSRF request after body parsing
  */
+function validateCsrfRequest(req, res) {
+  const cookies = parseCookies(req.headers.cookie || "");
+  const cookieToken = cookies[CSRF_COOKIE_NAME];
+  const submittedToken = getSubmittedCsrfToken(req);
+  const validation = validateCsrfTokenPair(cookieToken, submittedToken);
+
+  if (!validation.valid) {
+    if (DEBUG_CSRF) {
+      logger.warn("CSRF validation failed", {
+        path: req.path,
+        method: req.method,
+        message: validation.message,
+        cookieToken: maskToken(cookieToken),
+        submittedToken: maskToken(submittedToken)
+      });
+    }
+    return validation;
+  }
+
+  const newToken = generateCsrfToken();
+  if (res) {
+    setCsrfCookie(res, newToken);
+    res.locals = res.locals || {};
+    res.locals.csrfToken = newToken;
+  }
+  if (DEBUG_CSRF) {
+    logger.debug("CSRF validation succeeded", {
+      path: req.path,
+      method: req.method,
+      cookieToken: maskToken(cookieToken),
+      submittedToken: maskToken(submittedToken)
+    });
+  }
+  return { valid: true, token: newToken };
+}
+
 function csrfTokenEndpoint(req, res) {
   const token = req.csrfToken ? req.csrfToken() : generateCsrfToken();
   setCsrfCookie(res, token);
@@ -166,6 +210,7 @@ function csrfTokenEndpoint(req, res) {
 module.exports = {
   csrfProtection,
   csrfTokenEndpoint,
+  validateCsrfRequest,
   generateCsrfToken,
   CSRF_COOKIE_NAME,
   CSRF_HEADER_NAME

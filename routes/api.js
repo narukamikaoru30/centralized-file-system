@@ -162,7 +162,9 @@ router.get(
   async (req, res) => {
     try {
       const format = (req.query.format || 'csv').toLowerCase();
-      const days = Math.min(365, Math.max(1, parseInt(req.query.days) || 30));
+      // 🔐 Fix #2: Validate days and limit exports
+      const days = Math.min(90, Math.max(1, parseInt(req.query.days) || 30));
+      const limit = Math.min(5000, 10000);  // Hard cap at 5000 to prevent OOM
       const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
       const filter = { date: { $gte: since } };
@@ -171,7 +173,7 @@ router.get(
 
       const reports = await Report.find(filter)
         .sort({ date: -1 })
-        .limit(10000)
+        .limit(limit)
         .lean();
 
       if (format === 'csv') {
@@ -180,14 +182,17 @@ router.get(
         const parser = new Parser({ fields });
         const csv = parser.parse(reports);
 
+        // 🔐 Fix #6: Sanitize filename to prevent header injection
+        const safeFilename = `reports_${new Date().toISOString().slice(0, 10)}.csv`.replace(/[^a-zA-Z0-9._-]/g, '_');
         res.setHeader('Content-Type', 'text/csv');
-        res.setHeader('Content-Disposition', `attachment; filename="reports_${new Date().toISOString().slice(0, 10)}.csv"`);
+        res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}"`);
         return res.send(csv);
       }
 
       // JSON export
+      const safeFilename = `reports_${new Date().toISOString().slice(0, 10)}.json`.replace(/[^a-zA-Z0-9._-]/g, '_');
       res.setHeader('Content-Type', 'application/json');
-      res.setHeader('Content-Disposition', `attachment; filename="reports_${new Date().toISOString().slice(0, 10)}.json"`);
+      res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}"`);
       return res.json({ success: true, count: reports.length, data: reports });
     } catch (err) {
       logger.error('Report export error', { error: err.message });

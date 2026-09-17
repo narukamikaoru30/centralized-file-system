@@ -10,7 +10,8 @@ const auditLogSchema = new mongoose.Schema({
       "2fa_enabled", "2fa_disabled",
       "account_created", "account_deactivated", "account_suspended", "account_reactivated",
       "invite_sent", "invite_accepted",
-      "branch_created", "branch_updated", "branch_deleted"
+      "branch_created", "branch_updated", "branch_deleted",
+      "file_deleted", "file_created", "file_viewed", "file_downloaded", "file_shared"
     ],
     required: true
   },

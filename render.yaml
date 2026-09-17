@@ -1,0 +1,33 @@
+services:
+  - type: web
+    name: centralized-file-system
+    runtime: node
+    plan: starter
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: MONGO_URI
+        sync: false
+      - key: JWT_ACTIVE_KID
+        sync: false
+      - key: JWT_PRIVATE_KEY
+        sync: false
+      - key: JWT_PUBLIC_KEY
+        sync: false
+      - key: R2_ENDPOINT
+        value: https://4d04df6027c62630b675f747baf8b72d.r2.cloudflarestorage.com
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET
+        value: cfs
+      - key: R2_PREFIX
+        value: uploads
+      - key: ENABLE_BLOCKCHAIN
+        value: "false"

@@ -17,8 +17,91 @@ const BRANCH_OPTIONS = require("../config/branches");
 const { requireAuth, requireActor } = require("../middleware/authMiddleware");
 const { requireActive, requireRole } = require("../middleware/roleMiddleware");
 const { getGlobalSystemSettings } = require("../utils/systemSettings");
+const { getObjectBuffer, deleteObject } = require("../utils/objectStorage");
+
+// Matches the Admin dashboard forecasting process, but includes every branch.
+async function buildSuperAdminForecast(months = 1) {
+  const today = new Date();
+  const currentMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+  const firstMonthStart = new Date(currentMonthStart);
+  firstMonthStart.setMonth(firstMonthStart.getMonth() - (months - 1));
+  const nextMonthStart = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+
+  const aggregation = await File.aggregate([
+    {
+      $match: {
+        deleted: false,
+        uploadedAt: { $gte: firstMonthStart }
+      }
+    },
+    {
+      $group: {
+        _id: {
+          year: { $year: "$uploadedAt" },
+          month: { $month: "$uploadedAt" }
+        },
+        count: { $sum: 1 }
+      }
+    }
+  ]);
+
+  const lookup = aggregation.reduce((map, doc) => {
+    const key = `${doc._id.year}-${String(doc._id.month).padStart(2, "0")}`;
+    map[key] = doc.count;
+    return map;
+  }, {});
+
+  const uploadForecast = [];
+  const monthlyCounts = [];
+  for (let i = 0; i < months; i += 1) {
+    const monthDate = new Date(firstMonthStart);
+    monthDate.setMonth(firstMonthStart.getMonth() + i);
+    const key = `${monthDate.getFullYear()}-${String(monthDate.getMonth() + 1).padStart(2, "0")}`;
+    const count = lookup[key] || 0;
+
+    uploadForecast.push({
+      label: monthDate.toLocaleString("en-US", { month: "short", year: "numeric" }),
+      count
+    });
+    monthlyCounts.push(count);
+  }
+
+  const currentMonthUploads = monthlyCounts[monthlyCounts.length - 1] || 0;
+  const daysInNextMonth = new Date(
+    nextMonthStart.getFullYear(),
+    nextMonthStart.getMonth() + 1,
+    0
+  ).getDate();
+
+  const recentWeekStart = new Date(today);
+  recentWeekStart.setDate(today.getDate() - 6);
+  const recentWeekUploads = await File.countDocuments({
+    deleted: false,
+    uploadedAt: { $gte: recentWeekStart }
+  });
+  const recentWeekDailyRate = recentWeekUploads / 7;
+  const projectedNextMonth = recentWeekDailyRate * daysInNextMonth;
+  const reasonableCap = Math.max(8, Math.round(Math.max(1, recentWeekUploads) * 2.5));
+  const predictedNextMonthUploads = Math.max(
+    0,
+    Math.min(Math.round(projectedNextMonth), reasonableCap)
+  );
+
+  return {
+    uploadForecast,
+    currentMonthUploads,
+    predictedNextMonthUploads,
+    predictedNextMonthLabel: nextMonthStart.toLocaleString("en-US", {
+      month: "long",
+      year: "numeric"
+    }),
+    dailyUploadRate: Number(Math.max(0, recentWeekDailyRate).toFixed(2))
+  };
+}
 
 async function buildSuperAdminStats() {
+  const forecast = await buildSuperAdminForecast();
+
   const totalFiles = await File.countDocuments();
   const totalUsers = await User.countDocuments({ role: "user" });
   const totalAdmins = await User.countDocuments({ role: "admin" });
@@ -32,7 +115,8 @@ async function buildSuperAdminStats() {
     totalAdmins,
     activeAdminAccounts,
     activeUserAccounts,
-    systemActions
+    systemActions,
+    ...forecast
   };
 }
 
@@ -51,6 +135,13 @@ router.get("/dashboard",
   const allUsers = await User.find().select("_id fullname email role branch active status avatar createdAt").sort({ _id: -1 });
   const allAdmins = await User.find({ role: "admin" }).select("_id fullname email role branch active status avatar createdAt");
   const auditLogs = await Report.find().sort({ date: -1 }).limit(20);
+  const recentNotifications = await Notification.find({
+    $or: [
+      { owner: superAdmin._id },
+      { relatedUser: superAdmin._id },
+      { type: { $in: ['download', 'general'] } }
+    ]
+  }).sort({ date: -1 }).limit(12);
   const activeBranchAdmins = await User.find({ role: "admin", active: { $ne: false } }).select("email branch");
   const branchAdminLookup = new Map();
   activeBranchAdmins.forEach((admin) => {
@@ -82,13 +173,16 @@ router.get("/dashboard",
     branchAdminAssignments,
     systemSettings,
     auditLogs,
+    recentNotifications,
     success: flash && flash.type === "success" ? flash.message : null,
     error: flash && flash.type === "error" ? flash.message : null
   });
 }));
 
 router.get("/stats",
-  requireActor({ mode: "json", notFoundMessage: "Unauthorized" }),
+  // Use the same authentication middleware as /dashboard. `requireActor`
+  // rejects the browser refresh request with "Missing actor identity".
+  requireAuth({ mode: "json", message: "Please log in to access the dashboard" }),
   requireActive({ mode: "json" }),
   requireRole(["super_admin"], { mode: "json" }),
   asyncHandler(async (_req, res) => {
@@ -112,15 +206,17 @@ router.get("/file/view/:fileId",
       return res.status(404).send("File not found");
     }
 
-    const localPath = path.join(__dirname, "../uploads", file.filename);
-    if (!fs.existsSync(localPath)) {
+    let fileBuffer;
+    try {
+      fileBuffer = await getObjectBuffer(file.filename);
+    } catch (storageErr) {
       return res.status(404).send("File content is missing on server");
     }
 
     const mimeType = file.mimeType || "application/octet-stream";
     const preferredName = file.originalName || file.filename;
     if (mimeType.startsWith("text/")) {
-      const raw = fs.readFileSync(localPath, "utf8");
+      const raw = fileBuffer.toString("utf8");
       const escaped = raw
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
@@ -159,7 +255,7 @@ router.get("/file/view/:fileId",
 
     res.setHeader("Content-Type", mimeType);
     res.setHeader("Content-Disposition", `inline; filename=\"${encodeURIComponent(preferredName)}\"`);
-    return res.sendFile(localPath);
+    return res.send(fileBuffer);
   })
 );
 
@@ -172,6 +268,13 @@ router.post("/admin/create",
   const superAdmin = req.actor;
 
   const { adminEmail, adminPassword, adminName, branch } = req.body;
+  
+  // Validate password complexity
+  const passwordError = User.validatePasswordComplexity(adminPassword);
+  if (passwordError) {
+    return res.json({ success: false, message: `Invalid admin password: ${passwordError}` });
+  }
+  
   const existingUser = await User.findOne({ email: adminEmail });
   if (existingUser) {
     return res.json({ success: false, message: "Email already exists" });
@@ -313,14 +416,7 @@ router.post("/file/delete/:fileId",
     return res.json({ success: false, message: "File not found" });
   }
 
-  const filePath = path.join(__dirname, "../uploads", file.filename);
-  if (fs.existsSync(filePath)) {
-    try {
-      fs.unlinkSync(filePath);
-    } catch (err) {
-      console.warn("⚠️ Unable to remove local file copy:", err.message);
-    }
-  }
+  await deleteObject(file.filename);
 
   const report = new Report({ filename: file.filename, action: "Deleted by Super Admin", user: superAdmin.fullname, owner: superAdmin._id, date: new Date(), ipAddress: req.ip || "", userAgent: (req.headers["user-agent"] || "").slice(0, 300), fileSize: file.sizeBytes || 0 });
   await report.save();
@@ -356,10 +452,7 @@ router.post("/account/delete/:accountId",
 
   const ownedFiles = await File.find({ owner: account._id });
   for (const file of ownedFiles) {
-    const filePath = path.join(__dirname, "../uploads", file.filename);
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-    }
+    await deleteObject(file.filename);
   }
 
   await File.deleteMany({ owner: account._id });
@@ -561,12 +654,18 @@ router.post("/branch/delete/:branchId",
     return res.json({ success: false, message: `Cannot delete branch with ${usersInBranch} assigned user(s). Reassign them first.` });
   }
 
+  // Check if branch has files (orphaned files would remain)
+  const filesInBranch = await File.countDocuments({ branch: branch.name, deleted: { $ne: true } });
+  if (filesInBranch > 0) {
+    return res.json({ success: false, message: `Cannot delete branch with ${filesInBranch} active file(s). Delete or reassign files first.` });
+  }
+
   await Branch.findByIdAndDelete(branchId);
 
   await AuditLog.create({
     user: superAdmin._id,
     action: "branch_deleted",
-    details: `Deleted branch: ${branch.name}`,
+    details: `Deleted branch: ${branch.name} (${usersInBranch} users verified, ${filesInBranch} files verified)`,
     ip: req.ip || "",
     userAgent: (req.headers["user-agent"] || "").slice(0, 300)
   });

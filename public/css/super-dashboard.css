@@ -1,3 +1,8 @@
+    html,
+    body {
+      scroll-behavior: auto;
+    }
+
     /* ===== HEADER ===== */
     .dashboard-header {
       background: rgba(255, 255, 255, 0.95);

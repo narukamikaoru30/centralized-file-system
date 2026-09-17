@@ -46,6 +46,7 @@
 
   <script src="/js/toast.js"></script>
   <script src="/js/theme.js"></script>
+  <script src="/js/requestHelpers.js"></script>
   <script>
     /* ===== Notification icon map ===== */
     const ICON_MAP = {
@@ -137,12 +138,27 @@
     }
 
     /* ===== Mark single notification as read ===== */
+    async function getNotificationCsrfHeaders() {
+      const headers = { 'Content-Type': 'application/json' };
+      if (window.RequestHelpers) {
+        let csrfToken = window.RequestHelpers.getCsrfToken();
+        if (!csrfToken || window.RequestHelpers.isCsrfTokenExpired(csrfToken)) {
+          csrfToken = await window.RequestHelpers.refreshCsrfToken();
+        }
+        if (csrfToken) {
+          headers['X-CSRF-Token'] = csrfToken;
+        }
+      }
+      return headers;
+    }
+
     async function markRead(el, id) {
       if (!el.classList.contains('unread')) return;
       try {
         const res = await fetch('/notifications/mark-read', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          headers: await getNotificationCsrfHeaders(),
           body: JSON.stringify({ ids: [id] })
         });
         if (res.ok) {
@@ -158,7 +174,8 @@
       try {
         const res = await fetch('/notifications/mark-read', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          headers: await getNotificationCsrfHeaders(),
           body: JSON.stringify({ all: true })
         });
         if (res.ok) {

@@ -1,5 +1,7 @@
 const express = require('express');
 const router = express.Router();
+const mongoose = require('mongoose');  // 🔐 Fix #11: For ObjectId validation
+const rateLimit = require('express-rate-limit');  // 🔐 Fix #12: For presence rate limiting
 const User = require('../models/User');
 const Message = require('../models/Message');
 const File = require('../models/File');
@@ -27,20 +29,25 @@ router.post(
 
     // Attach file from uploads if provided
     if (attachmentFileId) {
+      // 🔐 Fix #11: Validate file ID format and existence
+      if (!mongoose.Types.ObjectId.isValid(attachmentFileId)) {
+        return res.status(400).json({ success: false, message: 'Invalid file ID format' });
+      }
       const file = await File.findOne({
         _id: attachmentFileId,
         owner: from._id,
         deleted: { $ne: true }
       });
-      if (file) {
-        msgData.attachment = {
-          fileId: file._id,
-          filename: file.filename,
-          originalName: file.originalName,
-          mimeType: file.mimeType,
-          sizeBytes: file.sizeBytes
-        };
+      if (!file) {
+        return res.status(404).json({ success: false, message: 'File not found or not accessible' });
       }
+      msgData.attachment = {
+        fileId: file._id,
+        filename: file.filename,
+        originalName: file.originalName,
+        mimeType: file.mimeType,
+        sizeBytes: file.sizeBytes
+      };
     }
 
     const msg = new Message(msgData);
@@ -107,6 +114,7 @@ router.get(
 
 // GET /messages/contacts
 // returns list of users (except me) with presence and last message preview
+// 🔐 Fix #1: Prevent N+1 query - use MongoDB aggregation with lookup
 router.get(
   '/contacts',
   requireActor({ mode: 'json', notFoundMessage: 'User not found' }),
@@ -115,25 +123,38 @@ router.get(
   async (req, res) => {
   try {
     const me = req.actor;
+    const limit = Math.min(500, Math.max(1, parseInt(req.query.limit) || 100));
 
-    const users = await User.find({ _id: { $ne: me._id } }).select('fullname email avatar online lastOnline role');
-
-    // attach last message preview between me and each user
-    const contacts = await Promise.all(users.map(async u => {
-      const last = await Message.findOne({
-        $or: [ { from: me._id, to: u._id }, { from: u._id, to: me._id } ]
-      }).sort({ date: -1 });
-      return {
-        _id: u._id,
-        fullname: u.fullname,
-        email: u.email,
-        avatar: u.avatar || '',
-        online: !!u.online,
-        lastOnline: u.lastOnline,
-        role: u.role,
-        lastMessage: last ? { text: last.text, date: last.date, from: last.from } : null
-      };
-    }));
+    // Use aggregation to avoid N+1 query problem
+    const contacts = await User.aggregate([
+      { $match: { _id: { $ne: me._id } } },
+      { $limit: limit },
+      { $lookup: {
+        from: 'messages',
+        let: { userId: '$_id' },
+        pipeline: [
+          { $match: { $expr: { $or: [
+            { $and: [{ $eq: ['$from', me._id] }, { $eq: ['$to', '$$userId'] }] },
+            { $and: [{ $eq: ['$from', '$$userId'] }, { $eq: ['$to', me._id] }] }
+          ] } } },
+          { $sort: { date: -1 } },
+          { $limit: 1 },
+          { $project: { text: 1, date: 1, from: 1 } }
+        ],
+        as: 'lastMsg'
+      } },
+      { $unwind: { path: '$lastMsg', preserveNullAndEmptyArrays: true } },
+      { $project: {
+        _id: 1,
+        fullname: 1,
+        email: 1,
+        avatar: 1,
+        online: 1,
+        lastOnline: 1,
+        role: 1,
+        lastMessage: { $cond: [{ $ne: ['$lastMsg', null] }, '$lastMsg', null] }
+      } }
+    ]);
 
     return res.json({ success: true, data: contacts });
   } catch (err) {
@@ -142,12 +163,20 @@ router.get(
   }
 });
 
+// 🔐 Fix #12: Add rate limiting to presence endpoint
+const presenceLimiter = rateLimit({
+  windowMs: 10 * 1000,  // 10 seconds
+  max: 5,  // 5 presence updates per 10 seconds
+  keyGenerator: (req) => req.actor._id.toString()
+});
+
 // POST /messages/presence
 // body: { online }
 router.post(
   '/presence',
   requireActor({ mode: 'json', notFoundMessage: 'User not found' }),
   requireActive({ mode: 'json' }),
+  presenceLimiter,
   requireRole(['user', 'admin', 'super_admin'], { mode: 'json' }),
   async (req, res) => {
   try {

@@ -1,5 +1,6 @@
 const express = require("express");
 const router = express.Router();
+const rateLimit = require('express-rate-limit');  // 🔐 Fix #7: For rate limiting
 const User = require("../models/User");
 const File = require("../models/File");
 const Report = require("../models/Report");
@@ -9,9 +10,97 @@ const Invitation = require("../models/Invitation");
 const Branch = require("../models/Branch");
 const bcrypt = require("bcrypt");
 const asyncHandler = require('../utils/asyncHandler');
+const logger = require("../utils/logger");
 const { requireAuth, requireActor } = require("../middleware/authMiddleware");
 const { requireActive, requireRole } = require("../middleware/roleMiddleware");
 const { getGlobalSystemSettings } = require("../utils/systemSettings");
+const { getBranchFilter, getUserFilter, validateAdminCanManageUser, validateAdminCanManageFile } = require("../utils/adminValidation");
+const { getObjectBuffer } = require("../utils/objectStorage");
+
+function serializeFileWithUploader(file) {
+  const obj = file && typeof file.toObject === "function" ? file.toObject() : (file || {});
+  return {
+    ...obj,
+    uploadedBy: file && file.owner ? {
+      fullname: file.owner.fullname || "",
+      email: file.owner.email || "",
+      branch: file.owner.branch || ""
+    } : null
+  };
+}
+
+async function buildUploadForecast(branchFilter, months = 1) {
+  const today = new Date();
+  const currentMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+  const firstMonthStart = new Date(currentMonthStart);
+  firstMonthStart.setMonth(firstMonthStart.getMonth() - (months - 1));
+  const nextMonthStart = new Date(currentMonthStart);
+  nextMonthStart.setMonth(nextMonthStart.getMonth() + 1);
+
+  const aggregation = await File.aggregate([
+    { $match: {
+      ...branchFilter,
+      deleted: false,
+      uploadedAt: { $gte: firstMonthStart }
+    } },
+    { $group: {
+      _id: {
+        year: { $year: "$uploadedAt" },
+        month: { $month: "$uploadedAt" }
+      },
+      count: { $sum: 1 }
+    } }
+  ]);
+
+  const lookup = aggregation.reduce((map, doc) => {
+    const key = `${doc._id.year}-${String(doc._id.month).padStart(2, '0')}`;
+    map[key] = doc.count;
+    return map;
+  }, {});
+
+  const uploadForecast = [];
+  const monthlyCounts = [];
+
+  for (let i = 0; i < months; i += 1) {
+    const monthDate = new Date(firstMonthStart);
+    monthDate.setMonth(firstMonthStart.getMonth() + i);
+    const label = monthDate.toLocaleString('en-US', { month: 'short', year: 'numeric' });
+    const key = `${monthDate.getFullYear()}-${String(monthDate.getMonth() + 1).padStart(2, '0')}`;
+    const count = lookup[key] || 0;
+    uploadForecast.push({ label, count });
+    monthlyCounts.push(count);
+  }
+
+  const currentMonthUploads = monthlyCounts[monthlyCounts.length - 1] || 0;
+  const daysInNextMonth = new Date(
+    nextMonthStart.getFullYear(),
+    nextMonthStart.getMonth() + 1,
+    0
+  ).getDate();
+
+  const recentWeekStart = new Date(today);
+  recentWeekStart.setDate(today.getDate() - 6);
+  const recentWeekUploads = await File.countDocuments({
+    ...branchFilter,
+    deleted: false,
+    uploadedAt: { $gte: recentWeekStart }
+  });
+  const recentWeekDailyRate = recentWeekUploads / 7;
+  const projectedNextMonth = recentWeekDailyRate * daysInNextMonth;
+  const reasonableCap = Math.max(8, Math.round(Math.max(1, recentWeekUploads) * 2.5));
+  const predictedNextMonthUploads = Math.max(
+    0,
+    Math.min(Math.round(projectedNextMonth), reasonableCap)
+  );
+
+  return {
+    uploadForecast,
+    predictedNextMonthUploads,
+    predictedNextMonthLabel: nextMonthStart.toLocaleString('en-US', { month: 'long', year: 'numeric' }),
+    currentMonthUploads,
+    dailyUploadRate: Number(Math.max(0, recentWeekDailyRate).toFixed(2))
+  };
+}
 
 // ==================== ADMIN DASHBOARD ====================
 router.get("/dashboard",
@@ -20,13 +109,17 @@ router.get("/dashboard",
   requireRole(["admin", "super_admin"], { mode: "redirect" }),
   asyncHandler(async (req, res) => {
   const admin = req.actor;
+  if (admin.role === "super_admin") {
+    return res.redirect("/superadmin/dashboard");
+  }
+
   const flash = req.consumeFlash ? req.consumeFlash() : null;
 
-  const isSuperAdmin = admin.role === "super_admin";
-  const branchFilter = isSuperAdmin ? { deleted: { $ne: true } } : { branch: admin.branch || "", deleted: { $ne: true } };
+  const isSuperAdmin = false;
+  const branchFilter = getBranchFilter(admin);
 
   const totalFiles = await File.countDocuments(branchFilter);
-  const totalUsers = await User.countDocuments({ role: "user", ...(isSuperAdmin ? {} : { branch: admin.branch || "" }) });
+  const totalUsers = await User.countDocuments(getUserFilter(admin, "user"));
   const activeAdmins = await User.countDocuments(
     isSuperAdmin
       ? { role: { $in: ["admin", "super_admin"] } }
@@ -36,11 +129,24 @@ router.get("/dashboard",
     ...branchFilter,
     uploadedAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) }
   });
-  const allFiles = await File.find(branchFilter).populate("owner", "fullname email role branch").sort({ uploadedAt: -1 });
-  const allUsers = await User.find(isSuperAdmin ? {} : { role: "user", branch: admin.branch || "" }).select("_id fullname email role branch active status avatar createdAt");
-  const auditLogs = await Report.find(isSuperAdmin ? {} : { owner: admin._id }).sort({ date: -1 }).limit(10);
+  // 🔐 Fix #3: Limit admin dashboard file list to prevent OOM
+  const allFiles = (await File.find(branchFilter)
+    .populate("owner", "fullname email role branch")
+    .sort({ uploadedAt: -1 })
+    .limit(50))
+    .map(serializeFileWithUploader);
+  const allUsers = await User.find(getUserFilter(admin, "user"))
+    .select("_id fullname email role branch active status avatar createdAt")
+    .limit(100);
+  const auditLogs = await AuditLog.find(isSuperAdmin ? {} : { user: admin._id })
+    .populate("user", "fullname email")
+    .populate("targetUser", "fullname email")
+    .sort({ timestamp: -1 })
+    .limit(10);
 
   const systemSettings = await getGlobalSystemSettings();
+  const recentNotifications = await Notification.find({ owner: admin._id }).sort({ date: -1 }).limit(8);
+  const forecast = await buildUploadForecast(branchFilter);
 
   res.render("admindashboard", {
     email: admin.email,
@@ -51,18 +157,142 @@ router.get("/dashboard",
       totalFiles,
       totalUsers,
       activeAdmins,
-      recentUploads
+      recentUploads,
+      ...forecast
     },
     files: allFiles,
     users: allUsers,
     systemSettings,
     auditLogs,
+    recentNotifications,
     success: flash && flash.type === "success" ? flash.message : null,
     error: flash && flash.type === "error" ? flash.message : null
   });
 }));
 
+// ==================== DASHBOARD DATA REFRESH (JSON) ====================
+router.get("/dashboard/data",
+  requireActor({ mode: "json", notFoundMessage: "Unauthorized" }),
+  requireActive({ mode: "json" }),
+  requireRole(["admin", "super_admin"], { mode: "json" }),
+  asyncHandler(async (req, res) => {
+  const admin = req.actor;
+  if (admin.role === "super_admin") {
+    return res.status(403).json({ success: false, message: "Use the super admin dashboard" });
+  }
+
+  const isSuperAdmin = false;
+  const branchFilter = getBranchFilter(admin);
+
+  const totalFiles = await File.countDocuments(branchFilter);
+  const totalUsers = await User.countDocuments(getUserFilter(admin, "user"));
+  const activeAdmins = await User.countDocuments(
+    isSuperAdmin
+      ? { role: { $in: ["admin", "super_admin"] } }
+      : { role: "admin", branch: admin.branch || "", active: { $ne: false } }
+  );
+  const recentUploads = await File.countDocuments({
+    ...branchFilter,
+    uploadedAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) }
+  });
+
+  const allFiles = (await File.find(branchFilter)
+    .populate("owner", "fullname email role branch")
+    .sort({ uploadedAt: -1 })
+    .limit(50))
+    .map(serializeFileWithUploader);
+
+  const allUsers = await User.find(getUserFilter(admin, "user"))
+    .select("_id fullname email role branch active status avatar createdAt")
+    .limit(100);
+
+  const auditLogs = await AuditLog.find(isSuperAdmin ? {} : { user: admin._id })
+    .populate("user", "fullname email")
+    .populate("targetUser", "fullname email")
+    .sort({ timestamp: -1 })
+    .limit(10);
+
+  const forecast = await buildUploadForecast(branchFilter);
+  const recentNotifications = await Notification.find({ owner: admin._id })
+    .sort({ date: -1 })
+    .limit(8)
+    .lean();
+
+  res.json({
+    success: true,
+    stats: {
+      totalFiles,
+      totalUsers,
+      activeAdmins,
+      recentUploads,
+      ...forecast
+    },
+    files: allFiles,
+    users: allUsers,
+    auditLogs,
+    recentNotifications
+  });
+}));
+
 // ==================== FILE OPERATIONS ====================
+// These routes are separate so the audit log can tell a preview from a download.
+// Keep UPLOADS_DIRECTORY aligned with the directory configured by your upload middleware.
+async function findManageableFile(req) {
+  const file = await File.findById(req.params.fileId).populate("owner", "fullname email role branch");
+  if (!file || file.deleted) return { file: null, error: "File not found" };
+
+  const validation = validateAdminCanManageFile(req.actor, file);
+  if (!validation.allowed) return { file: null, error: validation.reason || "Not allowed" };
+
+  return { file, error: null };
+}
+
+function writeFileAudit(req, file, action, verb) {
+  return AuditLog.create({
+    user: req.actor._id,
+    action,
+    details: `${verb} file: ${file.originalName || file.filename}`,
+    targetUser: file.owner?._id || null,
+    ip: req.ip || "",
+    userAgent: (req.headers["user-agent"] || "").slice(0, 300)
+  });
+}
+
+router.get("/file/view/:fileId",
+  requireActor({ mode: "json", notFoundMessage: "Unauthorized" }),
+  requireActive({ mode: "json" }),
+  requireRole(["admin", "super_admin"], { mode: "json" }),
+  asyncHandler(async (req, res) => {
+    const { file, error } = await findManageableFile(req);
+    if (!file) return res.status(error === "File not found" ? 404 : 403).json({ success: false, message: error });
+
+    const safeFilename = path.basename(file.filename || "");
+    if (!safeFilename) return res.status(404).json({ success: false, message: "File is unavailable" });
+
+    await writeFileAudit(req, file, "file_viewed", "Viewed");
+    res.type(file.mimeType || "application/octet-stream");
+    res.send(await getObjectBuffer(safeFilename));
+  })
+);
+
+router.get("/file/download/:fileId",
+  requireActor({ mode: "json", notFoundMessage: "Unauthorized" }),
+  requireActive({ mode: "json" }),
+  requireRole(["admin", "super_admin"], { mode: "json" }),
+  asyncHandler(async (req, res) => {
+    const { file, error } = await findManageableFile(req);
+    if (!file) return res.status(error === "File not found" ? 404 : 403).json({ success: false, message: error });
+
+    const safeFilename = path.basename(file.filename || "");
+    if (!safeFilename) return res.status(404).json({ success: false, message: "File is unavailable" });
+
+    await writeFileAudit(req, file, "file_downloaded", "Downloaded");
+    res.type(file.mimeType || "application/octet-stream");
+    res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(file.originalName || safeFilename)}`);
+    res.send(await getObjectBuffer(safeFilename));
+  })
+);
+
 router.post("/file/delete/:fileId",
   requireActor({ mode: "json", notFoundMessage: "Unauthorized" }),
   requireActive({ mode: "json" }),
@@ -75,38 +305,41 @@ router.post("/file/delete/:fileId",
     return res.json({ success: false, message: "File not found" });
   }
 
-  if (admin.role !== "super_admin") {
-    const fileBranch = file.branch || (file.owner ? file.owner.branch : "");
-    if (!fileBranch || fileBranch !== (admin.branch || "")) {
-      return res.json({ success: false, message: "You can only manage files from your branch" });
-    }
+  const validation = validateAdminCanManageFile(admin, file);
+  if (!validation.allowed) {
+    return res.json({ success: false, message: validation.reason });
   }
 
   file.deleted = true;
   file.deletedAt = new Date();
   await file.save();
 
-  // Create audit log
-  const report = new Report({
-    filename: file.filename,
-    action: "Moved to Recycle Bin by Admin",
-    user: admin.fullname,
-    owner: admin._id,
-    date: new Date(),
-    ipAddress: req.ip || "",
-    userAgent: (req.headers["user-agent"] || "").slice(0, 300),
-    fileSize: file.sizeBytes || 0
+  // 🔐 Fix: Use AuditLog instead of Report for consistency
+  await AuditLog.create({
+    user: admin._id,
+    action: "file_deleted",
+    details: `Deleted file: ${file.filename} (${file.sizeBytes} bytes)`,
+    targetUser: file.owner || null,
+    ip: req.ip || "",
+    userAgent: (req.headers["user-agent"] || "").slice(0, 300)
   });
-  await report.save();
 
   res.json({ success: true, message: "File moved to recycle bin" });
 }));
 
 // ==================== USER MANAGEMENT ====================
+// 🔐 Fix #7: Add rate limiting to role change endpoint
+const roleChangeLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,  // 1 hour
+  max: 20,  // 20 role changes per hour
+  keyGenerator: (req) => req.actor._id.toString()
+});
+
 router.post("/user/role",
   requireActor({ mode: "json", notFoundMessage: "Unauthorized" }),
   requireActive({ mode: "json" }),
   requireRole(["super_admin"], { mode: "json" }),
+  roleChangeLimiter,
   asyncHandler(async (req, res) => {
   const admin = req.actor;
 
@@ -149,17 +382,15 @@ router.post("/user/role",
   const user = await User.findByIdAndUpdate(req.body.userId, { role: req.body.role }, { new: true })
     .select('_id fullname email role branch active status avatar');
   
-  // Create audit log
-  const report = new Report({
-    filename: user.email,
-    action: `Role changed to ${req.body.role}`,
-    user: admin.fullname,
-    owner: admin._id,
-    date: new Date(),
-    ipAddress: req.ip || "",
+  // 🔐 Fix: Use AuditLog instead of Report for consistency
+  await AuditLog.create({
+    user: admin._id,
+    action: "role_change",
+    details: `Changed role to ${req.body.role} for ${user.email}`,
+    targetUser: user._id,
+    ip: req.ip || "",
     userAgent: (req.headers["user-agent"] || "").slice(0, 300)
   });
-  await report.save();
 
   res.json({ success: true, message: "Role updated", user });
 }));
@@ -171,34 +402,30 @@ router.post("/user/deactivate/:userId",
   asyncHandler(async (req, res) => {
   const admin = req.actor;
 
-  // Soft delete by removing email (or we could add a "active" flag)
   const user = await User.findById(req.params.userId);
   if (!user) {
     return res.json({ success: false, message: "User not found" });
   }
 
-  if (admin.role === "admin" && user.role !== "user") {
-    return res.json({ success: false, message: "Admins can only manage regular users" });
+  const validation = validateAdminCanManageUser(admin, user);
+  if (!validation.allowed) {
+    return res.json({ success: false, message: validation.reason });
   }
-
-  if (admin.role === "admin" && (user.branch || "") !== (admin.branch || "")) {
-    return res.json({ success: false, message: "Admins can only manage users in their assigned branch" });
-  }
-
-  const report = new Report({
-    filename: user.email,
-    action: "User Deactivated",
-    user: admin.fullname,
-    owner: admin._id,
-    date: new Date(),
-    ipAddress: req.ip || "",
-    userAgent: (req.headers["user-agent"] || "").slice(0, 300)
-  });
-  await report.save();
 
   user.active = false;
+  user.status = "inactive";
   user.online = false;
   await user.save();
+
+  // 🔐 Fix: Use AuditLog instead of Report for consistency with suspend/unsuspend
+  await AuditLog.create({
+    user: admin._id,
+    action: "account_deactivated",
+    details: `Deactivated ${user.email}`,
+    targetUser: user._id,
+    ip: req.ip || "",
+    userAgent: (req.headers["user-agent"] || "").slice(0, 300)
+  });
 
   res.json({ success: true, message: "User deactivated" });
 }));
@@ -212,7 +439,7 @@ router.get("/files/search",
   const { query, category, email } = req.query;
   const admin = req.actor;
 
-  const filter = {};
+  const filter = getBranchFilter(admin);
 
   if (query) {
     filter.filename = { $regex: query, $options: "i" };
@@ -221,11 +448,13 @@ router.get("/files/search",
     filter.filetype = category;
   }
 
-  if (admin.role !== "super_admin") {
-    filter.branch = admin.branch || "";
-  }
-
-  const files = await File.find(filter).populate("owner", "fullname email branch").sort({ uploadedAt: -1 });
+  // 🔐 Fix #3: Add limit to prevent unbounded query results
+  // 🔐 Fix #5: Validate branch against allowed values
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 50));
+  const files = await File.find(filter)
+    .populate("owner", "fullname email branch")
+    .sort({ uploadedAt: -1 })
+    .limit(limit);
   res.json(files);
 }));
 
@@ -247,12 +476,9 @@ router.post("/user/suspend/:userId",
     return res.json({ success: false, message: "Cannot suspend a Super Admin" });
   }
 
-  if (admin.role === "admin" && user.role !== "user") {
-    return res.json({ success: false, message: "Admins can only suspend regular users" });
-  }
-
-  if (admin.role === "admin" && (user.branch || "") !== (admin.branch || "")) {
-    return res.json({ success: false, message: "Admins can only manage users in their assigned branch" });
+  const validation = validateAdminCanManageUser(admin, user);
+  if (!validation.allowed) {
+    return res.json({ success: false, message: validation.reason });
   }
 
   user.status = "suspended";
@@ -286,12 +512,9 @@ router.post("/user/unsuspend/:userId",
     return res.json({ success: false, message: "User not found" });
   }
 
-  if (admin.role === "admin" && user.role !== "user") {
-    return res.json({ success: false, message: "Admins can only manage regular users" });
-  }
-
-  if (admin.role === "admin" && (user.branch || "") !== (admin.branch || "")) {
-    return res.json({ success: false, message: "Admins can only manage users in their assigned branch" });
+  const validation = validateAdminCanManageUser(admin, user);
+  if (!validation.allowed) {
+    return res.json({ success: false, message: validation.reason });
   }
 
   user.status = "active";
@@ -367,12 +590,16 @@ router.post("/invite",
   const host = req.get("host");
   const inviteLink = `${protocol}://${host}/auth/invite/${token}`;
 
-  // Try sending email (non-blocking — works if nodemailer is configured)
+  // Try sending email (non-blocking — log any issues)
   try {
     const sendInviteEmail = require("../utils/mailer");
     await sendInviteEmail(inviteEmail, inviteLink, inviteBranch, inviteRole);
-  } catch (_) {
-    // Email sending is optional
+  } catch (emailErr) {
+    logger.warn('[Admin] Invitation email failed to send', { 
+      email: inviteEmail, 
+      error: emailErr.message 
+    });
+    // Email sending is non-critical; user can resend or copy link manually
   }
 
   res.json({

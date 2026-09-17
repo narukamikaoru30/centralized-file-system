@@ -275,8 +275,24 @@
     });
   }
 
-  async function api(path, opts){
-    const res = await fetch(API + path, opts);
+  async function api(path, opts = {}){
+    const normalizedOpts = { ...opts };
+    normalizedOpts.credentials = normalizedOpts.credentials || 'same-origin';
+    normalizedOpts.headers = { ...(normalizedOpts.headers || {}) };
+
+    const method = (normalizedOpts.method || 'GET').toUpperCase();
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+      const headerToken = normalizedOpts.headers['X-CSRF-Token'] || normalizedOpts.headers['x-csrf-token'];
+      if ((!headerToken || (window.RequestHelpers && window.RequestHelpers.isCsrfTokenExpired && window.RequestHelpers.isCsrfTokenExpired(headerToken))) && window.RequestHelpers && window.RequestHelpers.refreshCsrfToken) {
+        const refreshedToken = await window.RequestHelpers.refreshCsrfToken();
+        if (refreshedToken) normalizedOpts.headers['X-CSRF-Token'] = refreshedToken;
+      } else if (!headerToken && window.RequestHelpers && window.RequestHelpers.getCsrfToken) {
+        const token = window.RequestHelpers.getCsrfToken();
+        if (token) normalizedOpts.headers['X-CSRF-Token'] = token;
+      }
+    }
+
+    const res = await fetch(API + path, normalizedOpts);
     return res.json();
   }
 

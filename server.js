@@ -12,6 +12,8 @@ const connectDB = require("./config/mongo"); // ✅ MongoDB connection
 const User = require("./models/User");
 const File = require("./models/File");
 const ShareLink = require("./models/ShareLink");
+const Notification = require("./models/Notification");
+const AuditLog = require("./models/AuditLog");
 const SystemSettings = require("./models/SystemSettings");
 const RefreshToken = require("./models/RefreshToken");
 const RevokedToken = require("./models/RevokedToken");
@@ -22,11 +24,18 @@ const logger = require('./utils/logger');
 const { initPush } = require('./utils/pushNotify');
 const { loadFeedbackWeights } = require('./ai/fileCategorizer');
 const { globalErrorHandler } = require('./utils/errorHandler');
+const { cleanupUploadFiles } = require('./utils/fileCleanup');
+const { buildAdminFileActivityPayloads } = require('./utils/fileAccessNotifications');
+const { getObjectBuffer, objectExists } = require('./utils/objectStorage');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || "127.0.0.1";
 const NODE_ENV = process.env.NODE_ENV || "development";
+
+app.get("/healthz", (req, res) => {
+  res.status(200).json({ status: "ok" });
+});
 
 // Security Headers Middleware (similar to helmet)
 app.use((req, res, next) => {
@@ -99,6 +108,7 @@ app.use(csrfProtection({
     "/auth/refresh",        // JWT refresh (uses refresh token cookie)
     "/auth/2fa/verify",     // 2FA verification during login
     "/auth/invite/accept",  // Invitation acceptance
+    "/auth/upload",         // Multipart upload handled post-multer
     "/socket.io"            // WebSocket connections
   ]
 }));
@@ -130,6 +140,47 @@ app.use((req, res, next) => {
   next();
 });
 
+async function notifyAdminsOfFileActivity({ actor, fileRecord, req, action }) {
+  if (!actor || !fileRecord) return;
+
+  try {
+    const adminUsers = await User.find({
+      role: { $in: ['admin', 'super_admin'] },
+      status: 'active'
+    }).select('_id');
+
+    const payloads = buildAdminFileActivityPayloads({
+      actor,
+      fileRecord,
+      admins: adminUsers,
+      action
+    });
+
+    if (!payloads.length) return;
+
+    const notifications = payloads.map(payload => ({
+      message: payload.message,
+      type: payload.action === 'download' ? 'download' : 'general',
+      owner: payload.owner,
+      relatedFile: payload.relatedFile,
+      relatedUser: payload.relatedUser,
+      metadata: payload.metadata
+    }));
+
+    await Notification.insertMany(notifications);
+    await AuditLog.create({
+      user: actor._id,
+      action: action === 'download' ? 'file_downloaded' : 'file_viewed',
+      details: payloads[0].message,
+      targetUser: fileRecord.owner,
+      ip: req.ip || '',
+      userAgent: (req.get('user-agent') || '').slice(0, 300)
+    });
+  } catch (err) {
+    logger.error('File activity notification failed', { error: err.message, stack: err.stack });
+  }
+}
+
 //Upload view - require authentication + ownership check
 app.get('/uploads/:filename', async (req, res) => {
   try {
@@ -140,25 +191,29 @@ app.get('/uploads/:filename', async (req, res) => {
 
     const requestedFilename = req.params.filename;
 
-    // Path traversal guard
-    const uploadsBase = path.resolve(__dirname, 'uploads');
-    const resolved = path.resolve(uploadsBase, requestedFilename);
-    if (!resolved.startsWith(uploadsBase + path.sep) && resolved !== uploadsBase) {
+    const safeFilename = path.basename(requestedFilename);
+    if (!safeFilename || safeFilename !== requestedFilename) {
       return res.status(400).json({ success: false, message: 'Invalid filename' });
     }
 
-    if (!fs.existsSync(resolved)) {
+    if (!(await objectExists(safeFilename))) {
       return res.status(404).json({ success: false, message: 'File not found' });
     }
 
+    const fileBuffer = await getObjectBuffer(safeFilename);
+
+    const isDownload = req.query.download === '1' || req.query.download === 'true' || req.query.mode === 'download' || req.query.action === 'download';
+    const action = isDownload ? 'download' : 'view';
+
     // Admins and super_admins can access all files
     if (req.user.role === 'admin' || req.user.role === 'super_admin') {
-      return res.sendFile(resolved);
+      await notifyAdminsOfFileActivity({ actor: req.user, fileRecord: await File.findOne({ filename: requestedFilename, deleted: { $ne: true } }), req, action });
+      return res.send(fileBuffer);
     }
 
     // Regular users can only access their own files or their own avatar
     if (req.user.avatar === requestedFilename) {
-      return res.sendFile(resolved);
+      return res.send(fileBuffer);
     }
 
     // Check ownership or shared access
@@ -174,7 +229,8 @@ app.get('/uploads/:filename', async (req, res) => {
       return res.status(403).json({ success: false, message: 'Access denied' });
     }
 
-    res.sendFile(resolved);
+    await notifyAdminsOfFileActivity({ actor: req.user, fileRecord, req, action });
+    res.send(fileBuffer);
   } catch (err) {
     logger.error('Upload file access error:', err.message);
     res.status(500).json({ success: false, message: 'Error accessing file' });
@@ -192,24 +248,27 @@ const io = initSocketIO(server, app);
 // Public share link download (no auth required)
 app.get('/share/:token', async (req, res) => {
   try {
-    // Atomic increment to prevent race condition on downloadCount
-    const link = await ShareLink.findOneAndUpdate(
-      {
-        token: req.params.token,
-        expiresAt: { $gt: new Date() }
-      },
-      { $inc: { downloadCount: 1 } },
-      { new: true }
-    ).populate('file');
+    // **FIX: Check limit BEFORE incrementing to prevent race condition**
+    const link = await ShareLink.findOne({
+      token: req.params.token,
+      expiresAt: { $gt: new Date() }
+    }).populate('file');
 
     if (!link || !link.file) {
       return res.status(404).send('Share link not found or expired');
     }
-    if (link.maxDownloads > 0 && link.downloadCount > link.maxDownloads) {
-      // Rolled past the limit — undo the increment
-      await ShareLink.updateOne({ _id: link._id }, { $inc: { downloadCount: -1 } });
+
+    // Check download limit BEFORE incrementing
+    if (link.maxDownloads > 0 && link.downloadCount >= link.maxDownloads) {
       return res.status(410).send('Download limit reached');
     }
+
+    // Now safely increment counter - use atomic operation
+    const updated = await ShareLink.findByIdAndUpdate(
+      link._id,
+      { $inc: { downloadCount: 1 } },
+      { new: true }
+    );
 
     // Path traversal guard
     const uploadsBase = path.resolve(__dirname, 'uploads');
@@ -223,6 +282,7 @@ app.get('/share/:token', async (req, res) => {
 
     res.download(filePath, link.file.originalName || link.file.filename);
   } catch (err) {
+    logger.error('[Share Link Download] Error:', { error: err.message });
     res.status(500).send('Error processing share link');
   }
 });
@@ -238,6 +298,7 @@ const superAdminRoutes = require("./routes/superadmin");
 const messagesRoutes = require("./routes/messages");
 const notificationsRoutes = require("./routes/notifications");
 const apiRoutes = require("./routes/api");
+const blockchainRoutes = require("./routes/blockchain");
 app.use("/auth", authRoutes);
 app.use("/auth", dashboardRoutes);
 app.use("/auth", fileRoutes);
@@ -247,6 +308,7 @@ app.use("/superadmin", superAdminRoutes);
 app.use("/messages", messagesRoutes);
 app.use("/notifications", notificationsRoutes);
 app.use("/api/v1", apiRoutes);
+app.use("/api/blockchain", blockchainRoutes);
 
 // Default route → show landing page
 app.get("/", (req, res) => {
@@ -266,6 +328,7 @@ app.get("/register", (req, res) => {
 connectDB().then(async () => {
   await ensureFileIndexes();
   await ensureTokenIndexes();
+  await ensureBlockchainIndexes();
   await createDefaultSuperAdmin();
   startTokenCleanupJob();
   startRecycleBinCleanupJob();
@@ -273,6 +336,8 @@ connectDB().then(async () => {
   try { await loadFeedbackWeights(); logger.info('AI feedback weights loaded'); } catch (_) {}
   // Initialize Web Push
   initPush();
+  // Initialize Blockchain
+  initBlockchain();
 });
 
 async function ensureFileIndexes() {
@@ -294,6 +359,18 @@ async function ensureTokenIndexes() {
     console.log("ℹ️ Token lifecycle indexes ready");
   } catch (err) {
     console.warn("⚠️ Unable to verify token lifecycle indexes:", err.message);
+  }
+}
+
+async function ensureBlockchainIndexes() {
+  try {
+    const BlockchainSync = require('./models/BlockchainSync');
+    const BlockchainAudit = require('./models/BlockchainAudit');
+    await BlockchainSync.createIndexes();
+    await BlockchainAudit.createIndexes();
+    console.log("ℹ️ Blockchain indexes ready");
+  } catch (err) {
+    console.warn("⚠️ Unable to verify blockchain indexes:", err.message);
   }
 }
 
@@ -385,6 +462,7 @@ function startTokenCleanupJob() {
 // Scheduled cleanup for recycle bin (runs every 12 hours)
 function startRecycleBinCleanupJob() {
   const CLEANUP_INTERVAL_MS = 12 * 60 * 60 * 1000;
+  const { cleanupUploadFiles } = require('./utils/fileCleanup');
 
   async function runRecycleBinCleanup() {
     try {
@@ -395,14 +473,40 @@ function startRecycleBinCleanupJob() {
       const expiredFiles = await File.find({ deleted: true, deletedAt: { $lt: cutoff } });
       if (!expiredFiles.length) return;
 
+      let successCount = 0;
+      let failureCount = 0;
+      const failures = [];
+
       for (const file of expiredFiles) {
-        const allFilenames = [file.filename, ...file.versions.map(v => v.filename)];
-        for (const fn of allFilenames) {
-          try { fs.unlinkSync(path.join(__dirname, "uploads", fn)); } catch (_) {}
+        try {
+          const allFilenames = [file.filename, ...file.versions.map(v => v.filename)];
+          
+          // Use cleanup utility with proper logging
+          const filesToClean = allFilenames.map(fn => ({ filename: fn }));
+          const cleanup = await cleanupUploadFiles(filesToClean, `recycle-bin-cleanup-${file._id}`);
+          
+          if (cleanup.failed.length) {
+            logger.warn(`[Recycle Bin Cleanup] Failed to delete ${cleanup.failed.length} version file(s) for ${file._id}`, cleanup.failed);
+            failureCount += cleanup.failed.length;
+            failures.push({ fileId: file._id.toString(), details: cleanup.failed });
+          } else {
+            // Only delete from DB if all files were successfully cleaned
+            await File.findByIdAndDelete(file._id);
+            successCount++;
+          }
+        } catch (err) {
+          logger.error(`[Recycle Bin Cleanup] Error processing file ${file._id}`, { error: err.message });
+          failureCount++;
+          failures.push({ fileId: file._id.toString(), error: err.message });
         }
-        await File.findByIdAndDelete(file._id);
       }
-      console.log(`[Recycle Bin Cleanup] Permanently deleted ${expiredFiles.length} expired file(s)`);
+      
+      if (successCount > 0 || failures.length > 0) {
+        console.log(`[Recycle Bin Cleanup] Deleted ${successCount} file(s)${failures.length ? `, ${failures.length} failure(s)` : ''}`);
+        if (failures.length) {
+          logger.warn('[Recycle Bin Cleanup] Cleanup failures:', failures);
+        }
+      }
     } catch (err) {
       logger.error("[Recycle Bin Cleanup] Error:", err.message);
     }
@@ -411,6 +515,57 @@ function startRecycleBinCleanupJob() {
   runRecycleBinCleanup();
   setInterval(runRecycleBinCleanup, CLEANUP_INTERVAL_MS);
   console.log("ℹ️ Recycle bin cleanup job scheduled (every 12 hours)");
+}
+
+// Initialize Blockchain Services
+function initBlockchain() {
+  if (String(process.env.ENABLE_BLOCKCHAIN).toLowerCase() !== 'true') {
+    logger.info('Blockchain integration disabled by ENABLE_BLOCKCHAIN');
+    return;
+  }
+
+  try {
+    const { getBlockchainAPI } = require('./utils/blockchainAPI');
+    const { getBlockchainManager } = require('./utils/blockchainManager');
+
+    const blockchainManager = getBlockchainManager();
+    const blockchainAPI = getBlockchainAPI();
+
+    if (!blockchainManager.isReady()) {
+      logger.warn('⚠️ Blockchain manager not initialized. Check BLOCKCHAIN_CONFIG and POLYGON_RPC_URL');
+      return;
+    }
+
+    logger.info('✅ Blockchain services initialized');
+    logger.info(`   Network: ${blockchainManager.provider.network.name}`);
+    logger.info(`   Signer: ${blockchainManager.signer?.address}`);
+
+    // Start transaction queue processing
+    blockchainAPI.queue.startProcessing();
+    logger.info('✅ Blockchain transaction queue started');
+
+    // Optional: Verify blockchain connectivity periodically
+    const verifyInterval = setInterval(async () => {
+      try {
+        const status = await blockchainManager.getNetworkStatus();
+        if (status.status !== 'connected') {
+          logger.warn('⚠️ Blockchain connection check failed', status);
+        }
+      } catch (error) {
+        logger.error('Blockchain connectivity check error:', error.message);
+      }
+    }, 60000); // Every minute
+
+    // Cleanup on shutdown
+    process.on('exit', () => {
+      clearInterval(verifyInterval);
+      blockchainAPI.queue.stopProcessing();
+      logger.info('Blockchain queue stopped on exit');
+    });
+  } catch (error) {
+    logger.error('Blockchain initialization failed:', error.message);
+    logger.warn('Blockchain features disabled. File system will continue to operate normally.');
+  }
 }
 
 function startServer(initialPort, host) {

@@ -47,6 +47,13 @@ function validateEnv() {
 
   // Production-specific checks
   if (process.env.NODE_ENV === 'production') {
+    const r2Vars = ['R2_ENDPOINT', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_BUCKET'];
+    for (const varName of r2Vars) {
+      if (!process.env[varName] || process.env[varName].trim() === '') {
+        missing.push(varName);
+      }
+    }
+
     if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
       warnings.push('VAPID keys not set — Web Push disabled in production');
     }

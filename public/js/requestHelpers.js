@@ -1,36 +1,4 @@
 (function () {
-  // CSRF token management
-  let cachedCsrfToken = null;
-
-  function getCsrfTokenFromCookie() {
-    const match = document.cookie.match(/cfs_csrf=([^;]+)/);
-    return match ? decodeURIComponent(match[1]) : null;
-  }
-
-  function getCsrfToken() {
-    if (cachedCsrfToken) return cachedCsrfToken;
-    cachedCsrfToken = getCsrfTokenFromCookie();
-    return cachedCsrfToken;
-  }
-
-  // Refresh CSRF token from server
-  async function refreshCsrfToken() {
-    try {
-      const response = await fetch('/csrf-token', {
-        method: 'GET',
-        headers: { 'Accept': 'application/json' }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        cachedCsrfToken = data.csrfToken;
-        return cachedCsrfToken;
-      }
-    } catch (e) {
-      console.warn('Failed to refresh CSRF token:', e);
-    }
-    return getCsrfTokenFromCookie();
-  }
-
   function redirectToLogin(redirect) {
     const target = redirect || '/auth/login?reason=timeout';
     if (typeof window !== 'undefined' && window.location && window.location.href !== target) {
@@ -46,8 +14,38 @@
     return responseStatus === 401;
   }
 
-  function shouldHandleCsrfError(responseStatus, payload) {
-    return responseStatus === 403 && payload && payload.message && payload.message.includes('CSRF');
+  const CSRF_TOKEN_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+  function parseCsrfToken(token) {
+    if (!token || typeof token !== 'string') return null;
+    const parts = token.split('.');
+    if (parts.length !== 2) return null;
+    const timestamp = parseInt(parts[1], 36);
+    if (Number.isNaN(timestamp)) return null;
+    return { token, timestamp };
+  }
+
+  function isCsrfTokenExpired(token) {
+    const parsed = parseCsrfToken(token);
+    if (!parsed) return true;
+    return Date.now() - parsed.timestamp >= CSRF_TOKEN_MAX_AGE_MS;
+  }
+
+  async function refreshCsrfToken() {
+    try {
+      const response = await fetch('/csrf-token', {
+        method: 'GET',
+        credentials: 'same-origin'
+      });
+      if (!response.ok) return '';
+      const data = await response.json();
+      const token = data && data.csrfToken ? data.csrfToken : '';
+      const uploadCsrfTokenInput = document.getElementById('uploadCsrfToken');
+      if (uploadCsrfTokenInput && token) uploadCsrfTokenInput.value = token;
+      return token;
+    } catch (_) {
+      return '';
+    }
   }
 
   function normalizeRequestOptions(options = {}) {
@@ -60,10 +58,12 @@
     if (!headers['X-Requested-With']) {
       headers['X-Requested-With'] = 'XMLHttpRequest';
     }
+    if (!normalized.credentials) {
+      normalized.credentials = 'same-origin';
+    }
 
-    // Add CSRF token for state-changing methods
     const method = (normalized.method || 'GET').toUpperCase();
-    if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method) && !headers['X-CSRF-Token']) {
       const csrfToken = getCsrfToken();
       if (csrfToken) {
         headers['X-CSRF-Token'] = csrfToken;
@@ -74,8 +74,30 @@
     return normalized;
   }
 
-  async function requestJson(url, options = {}, retryOnCsrf = true) {
-    const response = await fetch(url, normalizeRequestOptions(options));
+  function getCsrfToken() {
+    if (typeof window === 'undefined') return '';
+    const match = document.cookie.match('(^|;)\\s*cfs_csrf=([^;]+)');
+    if (match) {
+      return decodeURIComponent(match[2]);
+    }
+    const hiddenCsrf = document.getElementById('uploadCsrfToken');
+    return (hiddenCsrf && hiddenCsrf.value) ? hiddenCsrf.value : '';
+  }
+
+  async function requestJson(url, options = {}) {
+    const normalized = normalizeRequestOptions(options);
+    const method = (normalized.method || 'GET').toUpperCase();
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+      const existingToken = normalized.headers['X-CSRF-Token'] || normalized.headers['x-csrf-token'];
+      if (!existingToken || isCsrfTokenExpired(existingToken)) {
+        const refreshedToken = await refreshCsrfToken();
+        if (refreshedToken) {
+          normalized.headers['X-CSRF-Token'] = refreshedToken;
+        }
+      }
+    }
+
+    const response = await fetch(url, normalized);
     const contentType = response.headers.get('content-type') || '';
     let payload;
 
@@ -85,24 +107,12 @@
       payload = { success: false, message: `Request failed (${response.status})` };
     }
 
-    // Handle CSRF errors by refreshing token and retrying once
-    if (shouldHandleCsrfError(response.status, payload) && retryOnCsrf) {
-      await refreshCsrfToken();
-      return requestJson(url, options, false);
-    }
-
     if (shouldHandleUnauthorized(response.status)) {
       redirectToLogin((payload && payload.redirect) || '/auth/login?reason=timeout');
       if (shouldHandleTimeout(response.status, payload)) {
         throw new Error(payload.message || 'Session expired due to inactivity. Please log in again.');
       }
       throw new Error((payload && payload.message) || 'Unauthorized. Please log in again.');
-    }
-
-    // Update cached CSRF token from response if available
-    const newCsrfCookie = getCsrfTokenFromCookie();
-    if (newCsrfCookie) {
-      cachedCsrfToken = newCsrfCookie;
     }
 
     return payload;
@@ -120,15 +130,6 @@
     });
   }
 
-  // Add CSRF token to FormData for file uploads
-  function appendCsrfToFormData(formData) {
-    const csrfToken = getCsrfToken();
-    if (csrfToken && !formData.has('_csrf')) {
-      formData.append('_csrf', csrfToken);
-    }
-    return formData;
-  }
-
   window.RequestHelpers = {
     requestJson,
     postNoBody,
@@ -137,7 +138,7 @@
     shouldHandleTimeout,
     shouldHandleUnauthorized,
     getCsrfToken,
-    refreshCsrfToken,
-    appendCsrfToFormData
+    isCsrfTokenExpired,
+    refreshCsrfToken
   };
 })();

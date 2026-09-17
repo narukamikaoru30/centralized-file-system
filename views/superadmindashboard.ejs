@@ -77,6 +77,12 @@
             <h3>Active User Accounts</h3>
             <p id="activeUserAccounts">0</p>
           </div>
+          <div class="stat-card">
+            <i class="ri-line-chart-line stat-icon"></i>
+            <h3>Next Month Forecast</h3>
+            <p id="predictedUploads">0</p>
+            <span id="predictedUploadsLabel" class="stat-caption">Next month</span>
+          </div>
         </div>
       </section>
 
@@ -113,6 +119,25 @@
               <% } %>
             </div>
           <% }) %>
+        </div>
+      </section>
+
+      <section class="activity-panel-section" id="activity">
+        <h2><i class="ri-notification-3-line section-icon"></i> Recent Activity</h2>
+        <div class="activity-panel">
+          <% if ((recentNotifications || []).length) { %>
+            <% recentNotifications.forEach(function(note) { %>
+              <div class="activity-item">
+                <div class="activity-icon"><%= note.icon || '🔔' %></div>
+                <div class="activity-body">
+                  <strong><%= note.message %></strong>
+                  <div class="activity-meta"><%= new Date(note.date).toLocaleString() %></div>
+                </div>
+              </div>
+            <% }) %>
+          <% } else { %>
+            <div class="activity-empty">No file activity yet.</div>
+          <% } %>
         </div>
       </section>
 
@@ -467,6 +492,11 @@
       document.getElementById('systemActions').textContent = stats.systemActions || '0';
       document.getElementById('activeAdminAccounts').textContent = stats.activeAdminAccounts || '0';
       document.getElementById('activeUserAccounts').textContent = stats.activeUserAccounts || '0';
+      document.getElementById('predictedUploads').textContent = stats.predictedNextMonthUploads || '0';
+      document.getElementById('predictedUploadsLabel').textContent = stats.predictedNextMonthLabel || 'Next month';
+      // Fetch the latest forecast on every page load. Previously this only
+      // happened after saving settings, leaving the hard-coded zero visible.
+      refreshSuperStats();
 
       const adminBranchFilterEl = document.getElementById('adminBranchFilter');
       const userBranchFilterEl = document.getElementById('userBranchFilter');
@@ -831,7 +861,7 @@
         danger: false
       }).then(result => {
         if (!result) return;
-        const fileUrl = `/uploads/${encodeURIComponent(safeName)}`;
+        const fileUrl = `/uploads/${encodeURIComponent(safeName)}?view=1`;
         const openedWindow = window.open(fileUrl, '_blank', 'noopener,noreferrer');
         if (!openedWindow) {
           showActionToast('Popup blocked. Allow popups to view files.', 'error');
@@ -857,7 +887,7 @@
       }).then(result => {
         if (!result) return;
         const link = document.createElement('a');
-        link.href = `/uploads/${encodeURIComponent(safeName)}`;
+        link.href = `/uploads/${encodeURIComponent(safeName)}?download=1`;
         link.setAttribute('download', safeName);
         document.body.appendChild(link);
         link.click();
@@ -876,6 +906,8 @@
       document.getElementById('systemActions').textContent = stats.systemActions || '0';
       document.getElementById('activeAdminAccounts').textContent = stats.activeAdminAccounts || '0';
       document.getElementById('activeUserAccounts').textContent = stats.activeUserAccounts || '0';
+      document.getElementById('predictedUploads').textContent = stats.predictedNextMonthUploads || '0';
+      document.getElementById('predictedUploadsLabel').textContent = stats.predictedNextMonthLabel || 'Next month';
     }
 
     async function refreshSuperStats() {

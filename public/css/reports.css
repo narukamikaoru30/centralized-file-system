@@ -1,3 +1,8 @@
+    html,
+    body {
+      scroll-behavior: auto;
+    }
+
     .card h2 {
       margin-bottom: 1.5rem;
       font-size: 1.5rem;
@@ -88,9 +93,12 @@
 
     /* Chart container */
     canvas {
+      display: block;
+      box-sizing: border-box;
+      width: 100% !important;
       margin-top: 1rem;
       border-radius: 12px;
-      padding: 1rem;
+      padding: 0;
       background: linear-gradient(135deg, rgba(255, 255, 255, 0.5) 0%, rgba(255, 255, 255, 0.3) 100%);
     }
 
@@ -108,10 +116,8 @@
 
     .compact-chart {
       margin-top: 0.35rem;
-      padding: 0.5rem;
-      max-height: 220px;
-      height: 220px;
-      width: 100%;
+      height: 220px !important;
+      max-height: none;
     }
     .chart-loader {
       display: flex;
@@ -176,8 +182,7 @@
       }
 
       .compact-chart {
-        max-height: 180px;
-        height: 180px;
+        height: 180px !important;
       }
 
       .report-charts-row {
@@ -212,8 +217,7 @@
       }
 
       .compact-chart {
-        max-height: 160px;
-        height: 160px;
+        height: 160px !important;
       }
 
       .generate-btn {

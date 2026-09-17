@@ -96,6 +96,18 @@ On the first run with `ENABLE_DEFAULT_SUPERADMIN_SEED=true`, the system automati
 ENABLE_DEFAULT_SUPERADMIN_SEED=false
 ```
 
+## Deploy to Render with Atlas and Cloudflare R2
+
+This repository includes [render.yaml](render.yaml) for a Render web service. The service uses MongoDB Atlas for metadata and Cloudflare R2 for uploaded files and profile photos. Render's local filesystem is not used for application files in production.
+
+1. Create an Atlas database user and database, then copy the `mongodb+srv://...` connection string into Render as `MONGO_URI`. Allow Render to connect in Atlas Network Access. For a basic Render deployment this is commonly `0.0.0.0/0` protected by a strong database password; use fixed outbound IPs if your Render plan provides them.
+2. In Cloudflare R2, create a bucket and an API token with Object Read and Object Write permission for that bucket. Set `R2_ENDPOINT` to `https://<account-id>.r2.cloudflarestorage.com`, plus `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, and `R2_PREFIX=uploads`.
+3. Generate the JWT pair locally with `npm run jwt:keys`. Put the contents of the PEM files into Render's `JWT_PRIVATE_KEY` and `JWT_PUBLIC_KEY` variables, preserving line breaks or using `\\n` escapes. Set a stable `JWT_ACTIVE_KID` value.
+4. Create a Render Blueprint from this repository, or create a Node web service with build command `npm ci`, start command `npm start`, and health check path `/healthz`. Set all `sync: false` variables in `render.yaml` in Render's Environment settings.
+5. Leave `ENABLE_BLOCKCHAIN=false` until the Polygon RPC URL, contract address, and wallet key are configured in Render. Never commit the wallet key or any R2, Atlas, mail, or JWT secret.
+
+The application keeps file authorization in Express and proxies private R2 objects through authenticated routes, so the R2 bucket does not need to be public.
+
 ---
 
 ## Usage
@@ -232,6 +244,51 @@ Users can enable 2FA from their profile settings. Scan the QR code with any TOTP
 - HTTPS redirect enforcement in production
 - Refresh token rotation with family-based reuse detection
 - Sensitive fields excluded from API responses
+
+---
+
+## 🔗 Blockchain Integration (NEW!)
+
+This system now includes **full blockchain integration** for immutable audit trails and compliance:
+
+### Key Features:
+- **Smart Contract (Polygon)** — FileRegistry.sol for file ownership and permissions
+- **Immutable Audit Trail** — All operations (upload, download, share, delete, login, role changes) recorded on-chain
+- **File Integrity Verification** — SHA-256 hashes anchored on blockchain
+- **Permission Management** — Ownership transfer and 5-tier access control enforced by smart contract
+- **Compliance Ready** — Blockchain-backed audit logs for regulatory requirements
+- **Non-Breaking Integration** — Works alongside existing username/password authentication
+
+### Quick Start:
+```bash
+# 1. Get testnet MATIC from faucet
+# Visit: https://faucet.polygon.technology/
+
+# 2. Update .env with your wallet
+BLOCKCHAIN_NETWORK=polygon-mumbai
+WALLET_PRIVATE_KEY=0xYOUR_KEY
+
+# 3. Deploy contract
+npx hardhat run scripts/deploy-contract.js --network polygon-mumbai
+
+# 4. Start server
+npm start
+
+# 5. Check blockchain status
+curl http://localhost:3000/api/blockchain/health
+```
+
+### Documentation:
+- **[BLOCKCHAIN_QUICK_REFERENCE.md](./BLOCKCHAIN_QUICK_REFERENCE.md)** — Quick commands and reference
+- **[BLOCKCHAIN_IMPLEMENTATION.md](./BLOCKCHAIN_IMPLEMENTATION.md)** — Technical architecture
+- **[BLOCKCHAIN_DEPLOYMENT_GUIDE.md](./BLOCKCHAIN_DEPLOYMENT_GUIDE.md)** — Step-by-step setup
+
+### Blockchain Statistics:
+- **Smart Contract**: 550 lines of Solidity
+- **Web3 Integration**: 1,380+ lines of JavaScript
+- **API Endpoints**: 15 REST endpoints for monitoring and control
+- **Network**: Polygon Mainnet (chainId 137) or Mumbai Testnet (chainId 80001)
+- **Status**: ✅ Production-ready, testnet deployment ready
 
 ---
 

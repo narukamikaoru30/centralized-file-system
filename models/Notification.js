@@ -34,11 +34,10 @@ notificationSchema.index({ owner: 1, read: 1 });
 notificationSchema.index({ type: 1 });
 
 // Auto-set icon from type on save
-notificationSchema.pre('save', function (next) {
+notificationSchema.pre('save', async function() {
   if (this.isNew && !this.isModified('icon')) {
     this.icon = NOTIFICATION_ICONS[this.type] || '🔔';
   }
-  next();
 });
 
 const Notification = mongoose.model("Notification", notificationSchema);

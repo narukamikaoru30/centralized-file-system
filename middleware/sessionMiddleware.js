@@ -1,5 +1,6 @@
 const User = require("../models/User");
 const SystemSettings = require("../models/SystemSettings");
+const logger = require("../utils/logger");
 const {
   SESSION_COOKIE_NAME,
   createSession,
@@ -38,11 +39,13 @@ async function getAutoLogoutMinutes() {
     const settings = await SystemSettings.findOne({ key: "global" }).select("autoLogoutMinutes").lean();
     const raw = Number.parseInt(settings && settings.autoLogoutMinutes, 10);
     autoLogoutCacheMinutes = Number.isFinite(raw) ? Math.min(120, Math.max(5, raw)) : 30;
-  } catch (_) {
-    autoLogoutCacheMinutes = 30;
+    autoLogoutCacheUpdatedAt = now;
+  } catch (err) {
+    logger.warn('[SessionMiddleware] Failed to fetch logout setting from DB', { error: err.message });
+    // Keep using cached value on error, still update timestamp to prevent constant retries
+    autoLogoutCacheUpdatedAt = now;
   }
 
-  autoLogoutCacheUpdatedAt = now;
   return autoLogoutCacheMinutes;
 }
 

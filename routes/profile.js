@@ -16,6 +16,7 @@ const { requireAuth } = require("../middleware/authMiddleware");
 const { sendPushToUser } = require("../utils/pushNotify");
 const { getGlobalSystemSettings } = require("../utils/systemSettings");
 const { pushFlash, pullFlash } = require("../utils/sessionHelpers");
+const { createStorageFilename, putObject, deleteObject } = require("../utils/objectStorage");
 
 // -------------------- MULTER (profile photos) --------------------
 const PROFILE_PHOTO_MAX_SIZE = 2 * 1024 * 1024;
@@ -26,14 +27,8 @@ function sanitizeFilename(filename) {
   return base.replace(/[^a-zA-Z0-9._-]/g, "_");
 }
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => { cb(null, "uploads/"); },
-  filename: (req, file, cb) => {
-    cb(null, `${Date.now()}-${Math.round(Math.random() * 1e9)}-${sanitizeFilename(file.originalname)}`);
-  }
-});
 const profileUpload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: PROFILE_PHOTO_MAX_SIZE },
   fileFilter: (req, file, cb) => {
     if (!PROFILE_PHOTO_ALLOWED_TYPES.includes(file.mimetype)) {
@@ -87,6 +82,13 @@ router.post("/user/profile", requireAuth({ mode: "json" }), (req, res) => {
 
       user.fullname = fullname;
       if (req.file) {
+        req.file.filename = createStorageFilename(req.file.originalname);
+        await putObject({
+          filename: req.file.filename,
+          body: req.file.buffer,
+          contentType: req.file.mimetype
+        });
+        if (user.avatar) await deleteObject(user.avatar);
         user.avatar = req.file.filename;
       }
       await user.save();
@@ -199,6 +201,17 @@ router.post("/invite/accept", registerLimiter, async (req, res) => {
     const existingUser = await User.findOne({ email: invitation.email });
     if (existingUser) {
       pushFlash(req, res, "error", "An account with this email already exists");
+      return res.redirect("/auth/login");
+    }
+
+    // Issue #22 Fix: Check if this email/branch combo already accepted invitation
+    const existingAcceptedInvite = await Invitation.findOne({
+      email: invitation.email,
+      branch: invitation.branch,
+      status: "accepted"
+    });
+    if (existingAcceptedInvite) {
+      pushFlash(req, res, "error", "This invitation has already been activated for this branch");
       return res.redirect("/auth/login");
     }
 

@@ -6,7 +6,7 @@
     description: 'Reports - DOJ-PPA Centralized File System',
     cssFiles: ['/css/dashboard.css', '/css/reports.css', '/css/system-refresh.css']
   }) %>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js" integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ" crossorigin="anonymous"></script>
+  <script src="/vendor/chart.umd.js"></script>
 </head>
 <body>
   <div class="dashboard-container">
@@ -25,32 +25,34 @@
     <main class="main-content">
       <div class="card">
         <h2>Activity Reports</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>File Name</th>
-              <th>Action</th>
-              <th>Date</th>
-              <th>User</th>
-              <th>Branch</th>
-            </tr>
-          </thead>
-        <tbody>
-            <% if (reports.length > 0) { %>
+        <div class="table-wrap">
+          <table id="reportsTable">
+            <thead>
+              <tr>
+                <th>File Name</th>
+                <th>Action</th>
+                <th>Date</th>
+                <th>User</th>
+                <th>Branch</th>
+              </tr>
+            </thead>
+            <tbody id="reportsTableBody">
+              <% if (reports.length > 0) { %>
                 <% reports.forEach(r => { %>
-                <tr>
+                  <tr>
                     <td><%= r.filename %></td>
                     <td><%= r.action %></td>
                     <td><%= r.date ? new Date(r.date).toDateString() : "N/A" %></td>
                     <td><%= r.user %></td>
-                <td><%= r.branch || 'N/A' %></td>
-                </tr>
+                    <td><%= r.branch || 'N/A' %></td>
+                  </tr>
                 <% }) %>
-            <% } else { %>
-              <tr><td colspan="5">No activity yet</td></tr>
-            <% } %>
-        </tbody>
-        </table>
+              <% } else { %>
+                <tr><td colspan="5">No activity yet</td></tr>
+              <% } %>
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div class="report-charts-row">

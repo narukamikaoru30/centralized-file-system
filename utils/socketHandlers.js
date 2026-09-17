@@ -17,22 +17,43 @@ function initSocketIO(httpServer, app) {
   io.on('connection', (socket) => {
     // Authenticate socket from cookies
     let socketUser = null;
+    let authError = null;
     try {
       const cookieHeader = socket.handshake.headers.cookie || '';
       const cookies = parseCookies(cookieHeader);
       const accessToken = cookies[ACCESS_COOKIE_NAME];
-      if (accessToken) {
+      if (!accessToken) {
+        authError = 'No access token found';
+      } else {
         const payload = verifyAccessToken(accessToken);
         if (payload && payload.sub) {
           socketUser = { id: payload.sub, email: payload.email };
+        } else {
+          authError = 'Invalid token payload';
         }
       }
-    } catch (_) { /* unauthenticated socket */ }
+    } catch (err) {
+      authError = err.message;
+    }
+
+    // Log unauthenticated connections
+    if (!socketUser) {
+      logger.warn('[Socket.io] Unauthenticated connection rejected', {
+        reason: authError,
+        ip: socket.handshake.address,
+        userAgent: socket.handshake.headers['user-agent']
+      });
+      socket.disconnect(true);
+      return;
+    }
 
     socket.on('identify', async (email) => {
       try {
         if (!email) return;
-        if (!socketUser || socketUser.email !== email) return;
+        if (!socketUser || socketUser.email !== email) {
+          logger.warn('[Socket.io] Identify mismatch', { expected: socketUser.email, received: email });
+          return;
+        }
         socket.join(email);
         socket.userEmail = email;
         const user = await User.findOne({ email });
@@ -42,7 +63,7 @@ function initSocketIO(httpServer, app) {
         }
         io.emit('presence', { email, online: true });
       } catch (e) {
-        logger.error('identify error', e);
+        logger.error('[Socket.io] Identify error', { error: e.message });
       }
     });
 
