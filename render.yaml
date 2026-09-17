@@ -19,6 +19,8 @@ services:
         sync: false
       - key: JWT_PUBLIC_KEY
         sync: false
+      - key: ENCRYPTION_KEY
+        sync: false
       - key: R2_ENDPOINT
         value: https://4d04df6027c62630b675f747baf8b72d.r2.cloudflarestorage.com
       - key: R2_ACCESS_KEY_ID
