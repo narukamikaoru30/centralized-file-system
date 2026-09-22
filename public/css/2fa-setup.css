@@ -39,7 +39,8 @@
     .container { width: 100%; max-width: 520px; position: relative; z-index: 1; }
     .card {
       background: rgba(255,255,255,0.98); backdrop-filter: blur(20px); border-radius: 28px;
-      padding: 3rem 2.5rem; box-shadow: 0 25px 80px rgba(0,0,0,0.25); position: relative; overflow: hidden;
+      padding: 3rem 2.5rem; box-shadow: 0 25px 80px rgba(0,0,0,0.25); position: relative;
+      max-height: 90vh; overflow-y: auto; -webkit-overflow-scrolling: touch;
       animation: cardReveal 0.8s cubic-bezier(0.16,1,0.3,1);
     }
     @keyframes cardReveal { from { opacity: 0; transform: translateY(30px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
@@ -49,11 +50,12 @@
       background-size: 200% 100%; animation: gradientFlow 3s linear infinite;
     }
     @keyframes gradientFlow { 0% { background-position: 0% 50%; } 100% { background-position: 200% 50%; } }
-    .header { text-align: center; margin-bottom: 2rem; }
+        .header { position: relative; z-index: 2; text-align: center; margin-bottom: 2rem; }
     .logo-wrapper {
-      display: inline-flex; align-items: center; justify-content: center; width: 80px; height: 80px;
+      position: relative; z-index: 3; display: inline-flex; align-items: center; justify-content: center; width: 80px; height: 80px;
       background: linear-gradient(135deg, var(--primary-gold), var(--primary-red)); border-radius: 22px;
       margin-bottom: 1.5rem; box-shadow: 0 15px 40px rgba(212,175,55,0.35), 0 0 0 4px rgba(212,175,55,0.1);
+      flex-shrink: 0;
     }
     .logo-wrapper i { font-size: 2.2rem; color: white; }
     .header h1 {
@@ -87,10 +89,37 @@
       background: linear-gradient(135deg, #f8fafc, #f1f5f9); border: 2px dashed #d1d5db;
       border-radius: 14px; padding: 1rem; margin-bottom: 1.5rem;
     }
-    .secret-key .label { font-size: 0.8rem; font-weight: 600; color: #666; margin-bottom: 0.4rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    .secret-key .label, .recovery-box .label { font-size: 0.8rem; font-weight: 600; color: #666; margin-bottom: 0.4rem; text-transform: uppercase; letter-spacing: 0.05em; }
     .secret-key .key {
       font-family: 'Courier New', monospace; font-size: 1rem; font-weight: 700;
       color: var(--dark-900); word-break: break-all; letter-spacing: 0.1em;
+    }
+    .copy-row {
+      display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+    .copy-btn, .mini-btn {
+      border: none; border-radius: 10px; background: #111827; color: white; padding: 0.6rem 0.85rem;
+      font-size: 0.8rem; font-weight: 700; cursor: pointer; transition: transform 0.2s ease;
+    }
+    .copy-btn:hover, .mini-btn:hover { transform: translateY(-1px); }
+    .recovery-box {
+      background: linear-gradient(135deg, rgba(212,175,55,0.08), rgba(193,18,31,0.04));
+      border: 1px solid rgba(212,175,55,0.25); border-radius: 14px; padding: 1rem; margin-bottom: 1.5rem;
+    }
+    .recovery-header {
+      display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem; margin-bottom: 0.75rem;
+    }
+    .recovery-header small { color: #6b7280; }
+    .recovery-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    .download-btn { text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
+    .recovery-grid {
+      display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem;
+      font-family: 'Courier New', monospace; font-weight: 700; color: var(--dark-900);
+    }
+    .recovery-code {
+      background: rgba(255,255,255,0.7); border: 1px solid rgba(17,24,39,0.08); border-radius: 8px;
+      padding: 0.55rem 0.65rem; text-align: center; letter-spacing: 0.08em;
     }
     .help-text {
       background: linear-gradient(135deg, rgba(212,175,55,0.08), rgba(212,175,55,0.03));

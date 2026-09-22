@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <meta name="description" content="User Dashboard — DOJ-PPA Centralized File System" />
+  <meta name="description" content="User Dashboard — PPO Regional FileSystem" />
   <link rel="icon" href="/DOJ-PPA%20Official%20Logo.png" />
-  <title>User Dashboard | Centralized File System</title>
+  <title>User Dashboard | PPO Regional FileSystem</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
@@ -2215,48 +2215,61 @@ document.addEventListener('DOMContentLoaded', function() {
   const disable2faBtn = document.getElementById('disable2faBtn');
   if (disable2faBtn) {
     disable2faBtn.addEventListener('click', function() {
-      // Show secure password modal instead of prompt()
       openActionConfirm(
         '🔐 Disable 2FA',
-        'Enter your password to disable two-factor authentication.',
+        'Enter your password and the current authenticator code to disable two-factor authentication.',
         'Disable',
         'danger',
         null
       );
-      
-      // Replace modal content with password input
+
       const modal = document.getElementById('actionConfirmModal');
       const messageEl = document.getElementById('confirmMessage');
       if (modal && messageEl) {
         messageEl.innerHTML = `
-          <div style="text-align:left;margin:1rem 0;">
-            <label style="display:block;margin-bottom:0.5rem;font-weight:600;color:#111827;">Password</label>
-            <input type="password" id="disable2faPasswordInput" placeholder="Enter your password" 
-                   style="width:100%;padding:0.75rem;border:1px solid #d1d5db;border-radius:8px;font-size:1rem;box-sizing:border-box;" 
-                   autocomplete="current-password" />
+          <div style="text-align:left; margin:1rem 0; display:grid; gap:0.85rem;">
+            <div>
+              <label style="display:block;margin-bottom:0.5rem;font-weight:600;color:#111827;">Password</label>
+              <input type="password" id="disable2faPasswordInput" placeholder="Enter your password"
+                     style="width:100%;padding:0.75rem;border:1px solid #d1d5db;border-radius:8px;font-size:1rem;box-sizing:border-box;" 
+                     autocomplete="current-password" />
+            </div>
+            <div>
+              <label style="display:block;margin-bottom:0.5rem;font-weight:600;color:#111827;">Authenticator Code</label>
+              <input type="text" id="disable2faTotpInput" placeholder="123456" maxlength="6" inputmode="numeric"
+                     style="width:100%;padding:0.75rem;border:1px solid #d1d5db;border-radius:8px;font-size:1rem;box-sizing:border-box; letter-spacing:0.2em; text-align:center;" autocomplete="one-time-code" />
+            </div>
           </div>
         `;
-        
+
         const okBtn = document.getElementById('confirmOkBtn');
         if (okBtn) {
           okBtn.onclick = async function() {
             const passwordInput = document.getElementById('disable2faPasswordInput');
+            const totpInput = document.getElementById('disable2faTotpInput');
             const password = passwordInput?.value || '';
+            const totpCode = totpInput?.value || '';
+
             if (!password) {
               showFeedbackToast('❌ Please enter your password', 'error');
               return;
             }
-            
+
+            if (!/^\d{6}$/.test(totpCode)) {
+              showFeedbackToast('❌ Enter a valid 6-digit authenticator code', 'error');
+              return;
+            }
+
             closeActionConfirm();
             const statusEl = document.getElementById('twoFaStatus');
             disable2faBtn.disabled = true;
             if (statusEl) { statusEl.textContent = 'Disabling...'; statusEl.style.color = '#666'; }
-            
+
             try {
               const res = await fetch('/auth/2fa/disable', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.RequestHelpers.getCsrfToken() || '' },
-                body: JSON.stringify({ password }),
+                body: JSON.stringify({ password, totpCode }),
                 credentials: 'same-origin'
               });
               const data = await res.json();

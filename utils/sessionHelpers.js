@@ -15,6 +15,14 @@ function setSessionCookie(res, sid) {
   );
 }
 
+function clearSessionCookie(res) {
+  const secureCookie = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  res.append(
+    "Set-Cookie",
+    `${SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secureCookie}`
+  );
+}
+
 function resolveSessionId(req) {
   const cookies = parseCookies(req.headers.cookie || "");
   const sid = cookies[SESSION_COOKIE_NAME];
@@ -57,6 +65,7 @@ function isAjaxRequest(req) {
 
 module.exports = {
   setSessionCookie,
+  clearSessionCookie,
   resolveSessionId,
   ensureSessionId,
   pushFlash,

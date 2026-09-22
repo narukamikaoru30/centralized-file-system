@@ -23,6 +23,10 @@ function respondUnauthorized(req, res, options = {}) {
   return res.status(401).json({ success: false, message });
 }
 
+function hasCompletedTwoFA(req, actor) {
+  return !actor?.totpEnabled || req.session?.is2FAComplete === true;
+}
+
 // Strict authentication check - requires JWT session (req.user)
 function requireAuth(options = {}) {
   return function authMiddleware(req, res, next) {
@@ -30,6 +34,12 @@ function requireAuth(options = {}) {
       return respondUnauthorized(req, res, {
         mode: options.mode,
         message: options.message || "Please log in to access this page"
+      });
+    }
+    if (!hasCompletedTwoFA(req, req.user)) {
+      return respondUnauthorized(req, res, {
+        mode: options.mode,
+        message: "Complete two-factor authentication to continue"
       });
     }
     req.actor = req.user;
@@ -46,6 +56,12 @@ function requireActor(options = {}) {
   return async function actorMiddleware(req, res, next) {
     try {
       if (req.user) {
+        if (!hasCompletedTwoFA(req, req.user)) {
+          return respondUnauthorized(req, res, {
+            mode: options.mode,
+            message: "Complete two-factor authentication to continue"
+          });
+        }
         req.actor = req.user;
         req.actorEmail = req.user.email;
         return next();
@@ -73,6 +89,13 @@ function requireActor(options = {}) {
         return respondUnauthorized(req, res, {
           mode: options.mode,
           message: options.notFoundMessage || "User not found"
+        });
+      }
+
+      if (!hasCompletedTwoFA(req, actor)) {
+        return respondUnauthorized(req, res, {
+          mode: options.mode,
+          message: "Complete two-factor authentication to continue"
         });
       }
 

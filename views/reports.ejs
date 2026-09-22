@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
   <%- include('partials/head', {
-    title: 'Reports | Centralized File System',
-    description: 'Reports - DOJ-PPA Centralized File System',
+    title: 'Reports | PPO Regional FileSystem',
+    description: 'Reports - PPO Regional FileSystem',
     cssFiles: ['/css/dashboard.css', '/css/reports.css', '/css/system-refresh.css']
   }) %>
   <script src="/vendor/chart.umd.js"></script>
@@ -72,6 +72,22 @@
         </div>
       </div>
 
+      <section class="report-notification-card" aria-labelledby="notificationSummaryTitle">
+        <div class="report-section-heading">
+          <div>
+            <p class="report-eyebrow">System activity</p>
+            <h2 id="notificationSummaryTitle"><i class="ri-notification-3-line"></i> Notifications</h2>
+          </div>
+          <div class="notification-summary-counts" aria-label="Notification totals">
+            <span><strong id="notificationTotal">0</strong> total</span>
+            <span><strong id="notificationUnread">0</strong> unread</span>
+          </div>
+        </div>
+        <div id="notificationTypeSummary" class="notification-type-summary">
+          <span class="report-empty-note">No system notifications yet.</span>
+        </div>
+      </section>
+
       <!-- Generate Report Button -->
       <div class="card">
         <button type="button" class="generate-btn" onclick="generateReport()"><i class="ri-file-chart-line"></i> Generate Report</button>
@@ -85,6 +101,12 @@
   <script>
     const { requestJson } = window.RequestHelpers;
 
+    function escapeHtml(value) {
+      const element = document.createElement('div');
+      element.textContent = value == null ? '' : String(value);
+      return element.innerHTML;
+    }
+
     // Fetch active report data for charts
     async function loadReportData() {
       const errorDiv = document.getElementById('reportsError');
@@ -96,7 +118,21 @@
         const payload = await requestJson('/auth/reports/data');
         if (!payload.success) throw new Error(payload.message || 'No report data');
 
-        const stats = payload.stats || { fileTypeCounts: { documents:0, images:0, others:0 }, uploadsArray: [] };
+        const stats = payload.stats || {
+          fileTypeCounts: { documents: 0, images: 0, others: 0 },
+          uploadsArray: [],
+          notificationCount: 0,
+          unreadNotificationCount: 0,
+          notificationTypeCounts: {}
+        };
+
+        document.getElementById('notificationTotal').textContent = stats.notificationCount || 0;
+        document.getElementById('notificationUnread').textContent = stats.unreadNotificationCount || 0;
+        const notificationSummary = document.getElementById('notificationTypeSummary');
+        const notificationTypes = Object.entries(stats.notificationTypeCounts || {});
+        notificationSummary.innerHTML = notificationTypes.length
+          ? notificationTypes.map(([type, count]) => `<span class="notification-type-pill"><i class="ri-notification-3-line"></i>${escapeHtml(type.replace(/_/g, ' '))}<strong>${count}</strong></span>`).join('')
+          : '<span class="report-empty-note">No system notifications yet.</span>';
 
         const ftc = stats.fileTypeCounts;
         const totalFiles = (ftc.documents || 0) + (ftc.images || 0) + (ftc.others || 0);
@@ -197,6 +233,9 @@
         link.click();
         link.remove();
         URL.revokeObjectURL(downloadUrl);
+        if (window.showToast) {
+          window.showToast('Report export is ready.', 'success');
+        }
       } catch (err) {
         if (window.showFeedbackToast) {
           window.showFeedbackToast(err.message || 'Unable to generate report', 'error');

@@ -17,6 +17,13 @@ const { sendPushToUser } = require("../utils/pushNotify");
 const { getGlobalSystemSettings } = require("../utils/systemSettings");
 const { pushFlash, pullFlash } = require("../utils/sessionHelpers");
 const { createStorageFilename, putObject, deleteObject } = require("../utils/objectStorage");
+const { createCsv } = require("../utils/csvExporter");
+
+function getPageOptions(query = {}, defaultLimit = 100, maxLimit = 500) {
+  const page = Math.max(Number.parseInt(query.page, 10) || 1, 1);
+  const limit = Math.min(Math.max(Number.parseInt(query.limit, 10) || defaultLimit, 1), maxLimit);
+  return { page, limit, skip: (page - 1) * limit };
+}
 
 // -------------------- MULTER (profile photos) --------------------
 const PROFILE_PHOTO_MAX_SIZE = 2 * 1024 * 1024;
@@ -250,7 +257,10 @@ router.get("/reports", requireAuth({ mode: "redirect", message: "Please log in t
   try {
     const user = req.user;
     const flash = req.consumeFlash ? req.consumeFlash() : null;
-    const reports = await Report.find({ owner: user._id }).sort({ date: -1 });
+    const reportPage = getPageOptions(req.query, 100, 500);
+    const notificationPage = getPageOptions({ page: req.query.notificationPage, limit: req.query.notificationLimit }, 100, 500);
+    const reports = await Report.find({ owner: user._id }).sort({ date: -1 }).skip(reportPage.skip).limit(reportPage.limit);
+    const notifications = await Notification.find({ owner: user._id }).sort({ date: -1 }).skip(notificationPage.skip).limit(notificationPage.limit);
     const formattedReports = reports.map(r => ({
       filename: r.filename,
       action: r.action,
@@ -263,6 +273,17 @@ router.get("/reports", requireAuth({ mode: "redirect", message: "Please log in t
       email: user.email,
       role: user.role,
       reports: formattedReports,
+      notifications: notifications.map(notification => ({
+        message: notification.message,
+        type: notification.type,
+        date: notification.date,
+        read: notification.read,
+        branch: user.branch || "N/A"
+      })),
+      pagination: {
+        reports: { page: reportPage.page, limit: reportPage.limit },
+        notifications: { page: notificationPage.page, limit: notificationPage.limit }
+      },
       success: flash && flash.type === "success" ? flash.message : null,
       error: flash && flash.type === "error" ? flash.message : null
     });
@@ -276,10 +297,16 @@ router.get("/reports", requireAuth({ mode: "redirect", message: "Please log in t
 router.get("/reports/data", requireAuth({ mode: "json" }), async (req, res) => {
   try {
     const user = req.user;
-    const reports = await Report.find({ owner: user._id }).sort({ date: -1 });
+    const reportPage = getPageOptions(req.query, 100, 500);
+    const notificationPage = getPageOptions({ page: req.query.notificationPage, limit: req.query.notificationLimit }, 100, 500);
+    const [reports, notifications] = await Promise.all([
+      Report.find({ owner: user._id }).sort({ date: -1 }).skip(reportPage.skip).limit(reportPage.limit).lean(),
+      Notification.find({ owner: user._id }).sort({ date: -1 }).skip(notificationPage.skip).limit(notificationPage.limit).lean()
+    ]);
 
     const fileTypeCounts = { documents: 0, images: 0, others: 0 };
     const uploadsOverTime = {};
+    const notificationTypeCounts = {};
 
     reports.forEach(r => {
       const name = (r.filename || "").toLowerCase();
@@ -289,6 +316,11 @@ router.get("/reports/data", requireAuth({ mode: "json" }), async (req, res) => {
 
       const key = r.date ? new Date(r.date).toDateString() : "Unknown";
       uploadsOverTime[key] = (uploadsOverTime[key] || 0) + 1;
+    });
+
+    notifications.forEach(notification => {
+      const type = notification.type || "general";
+      notificationTypeCounts[type] = (notificationTypeCounts[type] || 0) + 1;
     });
 
     const uploadsArray = Object.keys(uploadsOverTime).sort((a, b) => new Date(a) - new Date(b)).map(d => ({ date: d, count: uploadsOverTime[d] }));
@@ -302,7 +334,24 @@ router.get("/reports/data", requireAuth({ mode: "json" }), async (req, res) => {
         user: r.user,
         branch: r.branch || user.branch || "N/A"
       })),
-      stats: { fileTypeCounts, uploadsArray }
+      notifications: notifications.map(notification => ({
+        message: notification.message || "",
+        type: notification.type || "general",
+        date: notification.date,
+        read: Boolean(notification.read),
+        branch: user.branch || "N/A"
+      })),
+      stats: {
+        fileTypeCounts,
+        uploadsArray,
+        notificationCount: notifications.length,
+        unreadNotificationCount: notifications.filter(notification => !notification.read).length,
+        notificationTypeCounts
+      },
+      pagination: {
+        reports: { page: reportPage.page, limit: reportPage.limit },
+        notifications: { page: notificationPage.page, limit: notificationPage.limit }
+      }
     });
   } catch (err) {
     console.error("Reports data error:", err.message);
@@ -314,23 +363,32 @@ router.get("/reports/data", requireAuth({ mode: "json" }), async (req, res) => {
 router.get("/reports/export.csv", requireAuth({ mode: "json" }), async (req, res) => {
   try {
     const user = req.user;
-    const reports = await Report.find({ owner: user._id })
-      .sort({ date: -1 })
-      .limit(5000)
-      .lean();
+    const [reports, notifications] = await Promise.all([
+      Report.find({ owner: user._id }).sort({ date: -1 }).limit(5000).lean(),
+      Notification.find({ owner: user._id }).sort({ date: -1 }).limit(5000).lean()
+    ]);
 
-    const { Parser } = require("json2csv");
-    const fields = ["filename", "action", "date", "user", "branch"];
-    const rows = reports.map((report) => ({
-      filename: report.filename || "",
-      action: report.action || "",
-      date: report.date || "",
-      user: report.user || "",
-      branch: report.branch || user.branch || "N/A"
-    }));
-    const csv = rows.length
-      ? new Parser({ fields }).parse(rows)
-      : `${fields.join(",")}\r\n`;
+    const rows = [
+      ...reports.map((report) => ({
+        recordType: "activity",
+        subject: report.filename || "",
+        action: report.action || "",
+        timestamp: report.date || "",
+        actor: report.user || "",
+        branch: report.branch || user.branch || "N/A",
+        status: ""
+      })),
+      ...notifications.map((notification) => ({
+        recordType: "notification",
+        subject: notification.message || "",
+        action: notification.type || "general",
+        timestamp: notification.date || "",
+        actor: user.fullname || user.email || "",
+        branch: user.branch || "N/A",
+        status: notification.read ? "read" : "unread"
+      }))
+    ];
+    const csv = createCsv(rows);
     const safeFilename = `my_reports_${new Date().toISOString().slice(0, 10)}.csv`;
 
     res.setHeader("Content-Type", "text/csv; charset=utf-8");

@@ -278,6 +278,42 @@
       box-shadow: 0 18px 34px rgba(212, 175, 55, 0.12);
     }
 
+    .reports > button {
+      background: linear-gradient(135deg, #D4AF37 0%, #C1121F 100%);
+      color: #fff;
+      border: 1px solid rgba(212, 175, 55, 0.35);
+      border-radius: 6px;
+      padding: 0.75rem 1.2rem;
+      font-weight: 800;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(212, 175, 55, 0.18);
+    }
+
+    .reports > button:disabled {
+      opacity: 0.7;
+      cursor: wait;
+    }
+
+    .report-card {
+      margin-top: 1rem;
+      padding: 1rem 1.2rem;
+      border: 1px solid rgba(212, 175, 55, 0.24);
+      border-radius: 8px;
+      background: linear-gradient(135deg, rgba(212, 175, 55, 0.08), rgba(17, 24, 39, 0.04));
+      color: #1f2937;
+    }
+
+    .report-card h3 {
+      color: #8a6a00;
+      margin-bottom: 0.7rem;
+    }
+
+    body.dark-mode .report-card {
+      border-color: rgba(255, 255, 255, 0.08);
+      background: linear-gradient(135deg, rgba(212, 175, 55, 0.12), rgba(15, 23, 42, 0.6));
+      color: #e2e8f0;
+    }
+
     .file-management h2,
     .user-management h2,
     .audit-logs h2,
@@ -587,6 +623,120 @@
     .action-toast.success { border-left: 4px solid #16a34a; }
     .action-toast.error { border-left: 4px solid #dc2626; }
     .action-toast.info { border-left: 4px solid #D4AF37; }
+
+    /* Enterprise admin surfaces */
+    .analytics-overview, .engagement-overview, .dashboard-header, .stat-card,
+    .system-settings, .branch-assignments, .manage-admins, .manage-users,
+    .global-files, .audit-logs, table, .confirm-dialog, .profile-card,
+    .search-bar, .action-toast {
+      border: 1px solid #E5E7EB !important;
+      border-radius: 6px !important;
+      box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05) !important;
+    }
+    table th, table td { border-bottom: 1px solid #F1F5F9 !important; letter-spacing: -0.01em; }
+    .dashboard-header h1, .dashboard-header h2, .overview h2, .stat-card h3,
+    .stat-card p { letter-spacing: -0.015em; font-weight: 600; }
+    label, .dashboard-header p, .stat-card, table th, table td { letter-spacing: -0.01em; }
+    input, select, textarea, button, .search-bar, .confirm-btn, .action-modal-input { border-radius: 4px !important; }
+    .reports > button, .table-action-link, .primary-btn, .export-btn, .save-btn,
+    .confirm-btn.primary { background: #D4AF37 !important; color: #0F172A !important; border-color: #D4AF37 !important; }
+    .reports > button:hover, .table-action-link:hover, .primary-btn:hover, .export-btn:hover,
+    .save-btn:hover, .confirm-btn.primary:hover { background: #C5A028 !important; }
+    button:focus-visible, input:focus, select:focus, textarea:focus, .search-bar:focus-within {
+      outline: none; border-color: #D4AF37 !important; box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.4) !important;
+    }
+    body.dark-mode .analytics-overview, body.dark-mode .engagement-overview, body.dark-mode .dashboard-header,
+    body.dark-mode .stat-card, body.dark-mode .system-settings, body.dark-mode .branch-assignments,
+    body.dark-mode .manage-admins, body.dark-mode .manage-users, body.dark-mode .global-files,
+    body.dark-mode .audit-logs, body.dark-mode table, body.dark-mode .confirm-dialog, body.dark-mode .profile-card,
+    body.dark-mode .search-bar, body.dark-mode .action-toast,
+    [data-theme='dark'] .dashboard-header, [data-theme='dark'] table, .dark .dashboard-header, .dark table {
+      border-color: #374151 !important; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.35) !important;
+    }
+    body.dark-mode table th, body.dark-mode table td, [data-theme='dark'] table th, [data-theme='dark'] table td,
+    .dark table th, .dark table td { border-bottom-color: #1F2937 !important; }
+    body.dark-mode .reports > button, body.dark-mode .table-action-link, body.dark-mode .primary-btn,
+    body.dark-mode .export-btn, body.dark-mode .save-btn, body.dark-mode .confirm-btn.primary,
+    [data-theme='dark'] .primary-btn, .dark .primary-btn { color: #0F172A !important; }
+
+    /* Keep analytics cards synchronized with the dark sidebar theme. */
+    body.dark-mode .card,
+    body.dark-mode .panel,
+    body.dark-mode .dashboard-card,
+    body.dark-mode .analytics-overview,
+    body.dark-mode .engagement-overview,
+    body.dark-mode .stat-box,
+    body.dark-mode .mini-metric,
+    body.dark-mode .chart-panel,
+    body.dark-mode .engagement-panel,
+    body.dark-mode .feed-item,
+    body.dark-mode .engagement-feed li,
+    [data-theme='dark'] .card,
+    [data-theme='dark'] .panel,
+    [data-theme='dark'] .dashboard-card,
+    [data-theme='dark'] .analytics-overview,
+    [data-theme='dark'] .engagement-overview,
+    [data-theme='dark'] .stat-box,
+    [data-theme='dark'] .mini-metric,
+    [data-theme='dark'] .chart-panel,
+    [data-theme='dark'] .engagement-panel,
+    [data-theme='dark'] .feed-item,
+    [data-theme='dark'] .engagement-feed li,
+    .dark .card,
+    .dark .panel,
+    .dark .dashboard-card,
+    .dark .analytics-overview,
+    .dark .engagement-overview,
+    .dark .stat-box,
+    .dark .mini-metric,
+    .dark .chart-panel,
+    .dark .engagement-panel,
+    .dark .feed-item,
+    .dark .engagement-feed li {
+      background-color: #151f38 !important;
+      border: 1px solid #243254 !important;
+      color: #f8fafc !important;
+    }
+
+    body.dark-mode .card p,
+    body.dark-mode .panel p,
+    body.dark-mode .dashboard-card p,
+    body.dark-mode .analytics-overview h2,
+    body.dark-mode .engagement-overview h2,
+    body.dark-mode .stat-box span,
+    body.dark-mode .mini-metric span,
+    body.dark-mode .chart-panel p,
+    body.dark-mode .engagement-panel p,
+    body.dark-mode .feed-item small,
+    body.dark-mode .feed-item p,
+    body.dark-mode .engagement-feed li,
+    [data-theme='dark'] .card p,
+    [data-theme='dark'] .panel p,
+    [data-theme='dark'] .dashboard-card p,
+    [data-theme='dark'] .stat-box span,
+    [data-theme='dark'] .mini-metric span,
+    [data-theme='dark'] .feed-item small,
+    [data-theme='dark'] .feed-item p,
+    .dark .card p,
+    .dark .panel p,
+    .dark .dashboard-card p,
+    .dark .stat-box span,
+    .dark .mini-metric span,
+    .dark .feed-item small,
+    .dark .feed-item p {
+      color: #94a3b8 !important;
+    }
+
+    body.dark-mode .analytics-overview h2,
+    body.dark-mode .engagement-overview h2,
+    [data-theme='dark'] .analytics-overview h2,
+    [data-theme='dark'] .engagement-overview h2,
+    .dark .analytics-overview h2,
+    .dark .engagement-overview h2 {
+      color: #f8fafc !important;
+      -webkit-text-fill-color: #f8fafc;
+      border-bottom-color: #243254 !important;
+    }
 
     .dashboard-header {
       background: rgba(255, 255, 255, 0.95);

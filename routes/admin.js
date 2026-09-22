@@ -234,6 +234,69 @@ router.get("/dashboard/data",
   });
 }));
 
+// ==================== ADMIN REPORT CSV EXPORT ====================
+router.get("/dashboard/reports/export.csv",
+  requireActor({ mode: "json", notFoundMessage: "Unauthorized" }),
+  requireActive({ mode: "json" }),
+  requireRole(["admin", "super_admin"], { mode: "json" }),
+  asyncHandler(async (req, res) => {
+    const admin = req.actor;
+    const branchFilter = admin.role === "super_admin" ? {} : { branch: admin.branch || "" };
+    const userFilter = getUserFilter(admin, "user");
+    const branchUsers = await User.find(userFilter).select("_id").lean();
+    const activityUserIds = [admin._id, ...branchUsers.map(user => user._id)];
+
+    const [reports, auditLogs, notifications] = await Promise.all([
+      Report.find(branchFilter).sort({ date: -1 }).limit(5000).lean(),
+      AuditLog.find(admin.role === "super_admin" ? {} : { user: { $in: activityUserIds } })
+        .populate("user", "fullname email")
+        .sort({ timestamp: -1 })
+        .limit(5000)
+        .lean(),
+      Notification.find(admin.role === "super_admin" ? {} : { owner: admin._id })
+        .sort({ date: -1 })
+        .limit(5000)
+        .lean()
+    ]);
+
+        const { createCsv } = require("../utils/csvExporter");
+    const rows = [
+      ...reports.map(report => ({
+        recordType: "file_activity",
+        subject: report.filename || "",
+            action: report.action || "",
+            timestamp: report.date || "",
+        actor: report.user || "",
+        branch: report.branch || "N/A",
+        status: ""
+      })),
+      ...auditLogs.map(log => ({
+        recordType: "admin_activity",
+        subject: log.details || "",
+        action: log.action || "",
+        timestamp: log.timestamp || "",
+        actor: log.user && (log.user.fullname || log.user.email) || "Unknown actor",
+        branch: admin.branch || "All branches",
+        status: ""
+      })),
+      ...notifications.map(notification => ({
+        recordType: "notification",
+        subject: notification.message || "",
+        action: notification.type || "general",
+        timestamp: notification.date || "",
+        actor: admin.fullname || admin.email || "",
+        branch: admin.branch || "All branches",
+        status: notification.read ? "read" : "unread"
+      }))
+    ];
+
+    const csv = createCsv(rows);
+    const safeFilename = `admin_report_${new Date().toISOString().slice(0, 10)}.csv`;
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${safeFilename}"`);
+    return res.send(csv);
+  }));
+
 // ==================== FILE OPERATIONS ====================
 // These routes are separate so the audit log can tell a preview from a download.
 // Keep UPLOADS_DIRECTORY aligned with the directory configured by your upload middleware.

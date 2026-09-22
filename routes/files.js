@@ -1,8 +1,9 @@
 const express = require("express");
 const router = express.Router();
 const crypto = require("crypto");
+const fs = require("fs");
 const path = require("path");
-const { Readable } = require("stream");
+const { Transform } = require("stream");
 const multer = require("multer");
 const archiver = require("archiver");
 const File = require("../models/File");
@@ -19,9 +20,12 @@ const { validateCsrfRequest } = require("../middleware/csrfMiddleware");
 const { cleanupUploadFiles } = require("../utils/fileCleanup");
 const {
   createStorageFilename,
-  putObject,
-  getObjectBuffer,
-  objectExists
+  uploadStream,
+  getObjectStream,
+  getObjectMetadata,
+  createTempFile,
+  objectExists,
+  deleteObject
 } = require("../utils/objectStorage");
 const logger = require("../utils/logger");
 
@@ -44,6 +48,28 @@ function sanitizeFilename(filename) {
   return base.replace(/[^a-zA-Z0-9._-]/g, "_");
 }
 
+function hasValidMagicBytes(mimeType, prefix) {
+  const bytes = Buffer.isBuffer(prefix) ? prefix : Buffer.from(prefix || "");
+  const startsWith = (...values) => values.some(value => bytes.subarray(0, value.length).equals(Buffer.from(value, "binary")));
+
+  if (mimeType === "application/pdf") return startsWith("%PDF-");
+  if (["image/jpeg", "image/jpg"].includes(mimeType)) return startsWith("\xff\xd8\xff");
+  if (mimeType === "image/png") return startsWith("\x89PNG\r\n\x1a\n");
+  if (mimeType === "image/gif") return startsWith("GIF87a", "GIF89a");
+  if (mimeType === "image/webp") {
+    return bytes.length >= 12
+      && bytes.subarray(0, 4).equals(Buffer.from("RIFF", "ascii"))
+      && bytes.subarray(8, 12).equals(Buffer.from("WEBP", "ascii"));
+  }
+  if (["application/msword", "application/vnd.ms-excel"].includes(mimeType)) {
+    return startsWith("\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1");
+  }
+  if (mimeType.includes("openxmlformats") || mimeType === "text/csv" || mimeType === "text/plain") {
+    return mimeType.startsWith("text/") || startsWith("PK\x03\x04");
+  }
+  return false;
+}
+
 function hasActiveFileShare(file, userId) {
   return (file.sharedWith || []).some((share) => {
     const sharedUserId = share && share.userId ? share.userId : share;
@@ -61,10 +87,6 @@ function canAccessFile(user, file) {
   if (String(file.owner) === String(user._id)) return true;
   if (user.branch && file.branch && user.branch === file.branch) return true;
   return hasActiveFileShare(file, user._id);
-}
-
-async function computeFileHash(buffer) {
-  return crypto.createHash("sha256").update(buffer).digest("hex");
 }
 
 function uploadErrorResponse(req, res, message, statusCode = 400) {
@@ -104,8 +126,52 @@ const ALLOWED_MIME_BY_TYPE = {
   report: ["application/pdf", "text/csv", "text/plain"]
 };
 
+const r2Storage = {
+  _handleFile(req, file, cb) {
+    const filename = createStorageFilename(file.originalname);
+    const hash = crypto.createHash("sha256");
+    let size = 0;
+    let prefix = Buffer.alloc(0);
+    const hashTransform = new Transform({
+      transform(chunk, encoding, callback) {
+        size += chunk.length;
+        hash.update(chunk);
+        if (prefix.length < 16) prefix = Buffer.concat([prefix, chunk.subarray(0, 16 - prefix.length)]);
+        callback(null, chunk);
+      }
+    });
+
+    uploadStream({
+      filename,
+      stream: file.stream.pipe(hashTransform),
+      contentType: file.mimetype
+    })
+      .then(async () => {
+        if (!hasValidMagicBytes(file.mimetype, prefix)) {
+          await deleteObject(filename).catch(() => {});
+          const error = new Error("File signature does not match its declared type");
+          error.code = "INVALID_FILE_SIGNATURE";
+          return cb(error);
+        }
+        return cb(null, {
+          filename,
+          size,
+          contentHash: hash.digest("hex")
+        });
+      })
+      .catch(async (error) => {
+        await deleteObject(filename).catch(() => {});
+        return cb(error);
+      });
+  },
+  _removeFile(req, file, cb) {
+    cleanupUploadFiles([{ filename: file.filename }], "multer-remove")
+      .then(() => cb(null))
+      .catch(cb);
+  }
+};
 const upload = multer({
-  storage: multer.memoryStorage(),
+  storage: r2Storage,
   limits: { 
     fileSize: UPLOAD_MAX_SIZE,
     files: 10,
@@ -138,22 +204,6 @@ router.post("/upload", requireAuth({ mode: "json" }), (req, res) => {
         logger.warn(`[Upload] CSRF validation cleanup failed for ${cleanup.failed.length} file(s)`, cleanup.failed);
       }
       return uploadErrorResponse(req, res, csrfValidation.message, 403);
-    }
-
-    files.forEach((file) => {
-      file.filename = createStorageFilename(file.originalname);
-    });
-
-    try {
-      await Promise.all(files.map((file) => putObject({
-        filename: file.filename,
-        body: file.buffer,
-        contentType: file.mimetype
-      })));
-    } catch (storageErr) {
-      await cleanupUploadFiles(files, "storage-upload-failed");
-      logger.error("[Upload] Object storage write failed", { error: storageErr.message });
-      return uploadErrorResponse(req, res, "Upload failed", 503);
     }
 
     try {
@@ -274,7 +324,7 @@ router.post("/upload", requireAuth({ mode: "json" }), (req, res) => {
       for (const file of files) {
         let contentHash = "";
         try {
-          contentHash = await computeFileHash(file.buffer);
+          contentHash = file.contentHash || "";
         } catch (err) {
           logger.warn(`[Upload] Failed to compute hash for ${file.filename}`, { error: err.message });
           contentHash = "";
@@ -507,7 +557,8 @@ router.get("/file/content/:fileId", requireAuth({ mode: "json" }), async (req, r
 
     res.setHeader("Content-Type", file.mimeType || "application/octet-stream");
     res.setHeader("Content-Disposition", `${download ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(displayName)}`);
-    return res.send(await getObjectBuffer(safeFilename));
+    const objectStream = await getObjectStream(safeFilename);
+    return objectStream.pipe(res);
   } catch (err) {
     logger.error("[File Content] Error", { error: err.message, stack: err.stack });
     return res.status(500).json({ success: false, message: "Unable to open file" });
@@ -748,16 +799,20 @@ router.get("/file/bulk-download", requireAuth({ mode: "json" }), async (req, res
 
       // Verify file size matches database record
       try {
-        const fileBuffer = await getObjectBuffer(f.filename);
-        if (fileBuffer.length !== f.sizeBytes) {
+        const metadata = await getObjectMetadata(f.filename);
+        if (metadata.ContentLength !== undefined && metadata.ContentLength !== f.sizeBytes) {
           logger.warn('[Bulk Download] File size mismatch', {
             filename: f.filename,
             dbSize: f.sizeBytes,
-            diskSize: fileBuffer.length
+            objectSize: metadata.ContentLength
           });
-          // Still include file but log warning
         }
-        archive.append(fileBuffer, { name: f.originalName || f.filename });
+        const objectStream = await getObjectStream(f.filename);
+        archive.append(objectStream, { name: f.originalName || f.filename });
+        await new Promise((resolve, reject) => {
+          objectStream.once('end', resolve);
+          objectStream.once('error', reject);
+        });
       } catch (statErr) {
         logger.error('[Bulk Download] Could not read file', { filename: f.filename, error: statErr.message });
         continue; // Skip files that can't be read
@@ -885,6 +940,7 @@ router.post("/recycle-bin/purge/:fileId", requireAuth({ mode: "json" }), async (
 const MAX_PREVIEW_FILE_SIZE = 50 * 1024 * 1024; // 50MB limit for preview
 
 router.get("/file/preview/:fileId", requireAuth({ mode: "json" }), async (req, res) => {
+  let tempFilePath = null;
   try {
     const user = req.user;
     const file = await File.findById(req.params.fileId);
@@ -899,8 +955,9 @@ router.get("/file/preview/:fileId", requireAuth({ mode: "json" }), async (req, r
     }
 
     // Check file size before processing to prevent memory exhaustion
-    const fileBuffer = await getObjectBuffer(file.filename);
-    if (fileBuffer.length > MAX_PREVIEW_FILE_SIZE) {
+    tempFilePath = await createTempFile(file.filename, MAX_PREVIEW_FILE_SIZE);
+    const stats = await fs.promises.stat(tempFilePath);
+    if (stats.size > MAX_PREVIEW_FILE_SIZE) {
       return res.status(413).json({ 
         success: false, 
         message: `File too large for preview (max ${MAX_PREVIEW_FILE_SIZE / (1024 * 1024)}MB)` 
@@ -911,7 +968,7 @@ router.get("/file/preview/:fileId", requireAuth({ mode: "json" }), async (req, r
 
     if (ext === "docx" || ext === "doc") {
       const mammoth = require("mammoth");
-      const result = await mammoth.convertToHtml({ buffer: fileBuffer });
+      const result = await mammoth.convertToHtml({ path: tempFilePath });
       return res.json({ success: true, type: "docx", html: sanitizePreviewHtml(result.value) });
     }
 
@@ -919,9 +976,9 @@ router.get("/file/preview/:fileId", requireAuth({ mode: "json" }), async (req, r
       const ExcelJS = require("exceljs");
       const workbook = new ExcelJS.Workbook();
       if (ext === "csv") {
-        await workbook.csv.read(Readable.from([fileBuffer]));
+        await workbook.csv.readFile(tempFilePath);
       } else {
-        await workbook.xlsx.load(fileBuffer);
+        await workbook.xlsx.readFile(tempFilePath);
       }
       const sheet = workbook.worksheets[0];
       if (!sheet) {
@@ -952,10 +1009,18 @@ router.get("/file/preview/:fileId", requireAuth({ mode: "json" }), async (req, r
     return res.status(400).json({ success: false, message: "Preview not supported for this file type" });
   } catch (err) {
     logger.error('[File Preview] Error:', { error: err.message, stack: err.stack });
+    if (err.code === "MAX_OBJECT_SIZE") {
+      return res.status(413).json({
+        success: false,
+        message: `File too large for preview (max ${MAX_PREVIEW_FILE_SIZE / (1024 * 1024)}MB)`
+      });
+    }
     if (err.message && err.message.includes('ENOMEM')) {
       return res.status(503).json({ success: false, message: "Server memory exhausted; please try again later" });
     }
     res.status(500).json({ success: false, message: "Internal server error" });
+  } finally {
+    if (tempFilePath) await fs.promises.unlink(tempFilePath).catch(() => {});
   }
 });
 

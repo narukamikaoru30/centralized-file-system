@@ -899,6 +899,265 @@ body.dark-mode .toast {
   to   { transform: translateX(0);    opacity: 1; }
 }
 
+/* ---------- ENTERPRISE UI OVERRIDES ---------- */
+:root {
+  --enterprise-border: #E5E7EB;
+  --enterprise-divider: #F1F5F9;
+  --enterprise-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --enterprise-gold: #D4AF37;
+  --enterprise-gold-hover: #C5A028;
+}
+
+.card,
+.dashboard-header,
+.table-wrap,
+.modal-content,
+.confirm-dialog,
+.profile-card,
+.search-bar,
+table,
+.file-management,
+.file-list,
+.upload-section,
+.filters,
+.user-management,
+.audit-logs,
+.reports {
+  border: 1px solid var(--enterprise-border) !important;
+  border-radius: 6px !important;
+  box-shadow: var(--enterprise-shadow) !important;
+}
+
+.card h1,
+.card h2,
+.card h3,
+.dashboard-header h1,
+.dashboard-header h2,
+.overview h1,
+.overview h2,
+.stat-card h1,
+.stat-card h2,
+.stat-card h3,
+.stat-value,
+.user-info h1 {
+  letter-spacing: -0.015em;
+  font-weight: 600;
+}
+
+table th,
+table td,
+label,
+.card p,
+.dashboard-header p,
+.stat-label,
+.file-category,
+.sidebar ul li a {
+  letter-spacing: -0.01em;
+}
+
+table th,
+table td {
+  border-bottom: 1px solid var(--enterprise-divider) !important;
+}
+
+input,
+select,
+textarea,
+.search-bar,
+.search-bar input,
+button,
+.theme-toggle,
+.sidebar-toggle,
+.mobile-theme-toggle {
+  border-radius: 4px !important;
+}
+
+button,
+.btn,
+.primary-btn,
+.submit-btn,
+.upload-btn,
+.export-btn,
+.save-btn,
+.search-bar button,
+.table-action-link,
+.profile-save-btn {
+  background: var(--enterprise-gold);
+  color: #0F172A;
+  border-color: var(--enterprise-gold);
+}
+
+button:hover,
+.btn:hover,
+.primary-btn:hover,
+.submit-btn:hover,
+.upload-btn:hover,
+.export-btn:hover,
+.save-btn:hover,
+.search-bar button:hover,
+.table-action-link:hover,
+.profile-save-btn:hover,
+.sidebar ul li a.active {
+  background: var(--enterprise-gold-hover);
+  color: #0F172A;
+}
+
+button:focus-visible,
+input:focus,
+select:focus,
+textarea:focus,
+.search-bar:focus-within,
+.theme-toggle:focus-visible {
+  outline: none;
+  border-color: var(--enterprise-gold) !important;
+  box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.4) !important;
+}
+
+.sidebar ul li a.active::before,
+.tab.active::after,
+.tab-indicator {
+  background: var(--enterprise-gold) !important;
+}
+
+body.dark-mode .card,
+body.dark-mode .dashboard-header,
+body.dark-mode .table-wrap,
+body.dark-mode .modal-content,
+body.dark-mode .confirm-dialog,
+body.dark-mode .profile-card,
+body.dark-mode .search-bar,
+body.dark-mode table,
+body.dark-mode .file-management,
+body.dark-mode .file-list,
+body.dark-mode .upload-section,
+body.dark-mode .filters,
+body.dark-mode .user-management,
+body.dark-mode .audit-logs,
+body.dark-mode .reports,
+[data-theme='dark'] .card,
+[data-theme='dark'] .dashboard-header,
+[data-theme='dark'] .table-wrap,
+[data-theme='dark'] .modal-content,
+[data-theme='dark'] .confirm-dialog,
+[data-theme='dark'] .profile-card,
+[data-theme='dark'] .search-bar,
+[data-theme='dark'] table,
+.dark .card,
+.dark .dashboard-header,
+.dark .table-wrap,
+.dark .modal-content,
+.dark .confirm-dialog,
+.dark .profile-card,
+.dark .search-bar,
+.dark table {
+  border-color: #374151 !important;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.35) !important;
+}
+
+body.dark-mode table th,
+body.dark-mode table td,
+[data-theme='dark'] table th,
+[data-theme='dark'] table td,
+.dark table th,
+.dark table td {
+  border-bottom-color: #1F2937 !important;
+}
+
+body.dark-mode button,
+body.dark-mode .btn,
+body.dark-mode .primary-btn,
+body.dark-mode .submit-btn,
+body.dark-mode .upload-btn,
+body.dark-mode .export-btn,
+body.dark-mode .save-btn,
+body.dark-mode .search-bar button,
+body.dark-mode .table-action-link,
+body.dark-mode .profile-save-btn,
+[data-theme='dark'] button,
+[data-theme='dark'] .btn,
+[data-theme='dark'] .primary-btn,
+[data-theme='dark'] .submit-btn,
+[data-theme='dark'] .upload-btn,
+[data-theme='dark'] .export-btn,
+[data-theme='dark'] .save-btn,
+.dark button,
+.dark .btn,
+.dark .primary-btn,
+.dark .submit-btn,
+.dark .upload-btn,
+.dark .export-btn,
+.dark .save-btn {
+  color: #0F172A;
+}
+
+body.dark-mode button:focus-visible,
+body.dark-mode input:focus,
+body.dark-mode select:focus,
+body.dark-mode textarea:focus,
+body.dark-mode .search-bar:focus-within,
+[data-theme='dark'] button:focus-visible,
+[data-theme='dark'] input:focus,
+[data-theme='dark'] select:focus,
+[data-theme='dark'] textarea:focus,
+.dark button:focus-visible,
+.dark input:focus,
+.dark select:focus,
+.dark textarea:focus {
+  box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.4) !important;
+}
+
+@media (prefers-color-scheme: dark) {
+  .card,
+  .dashboard-header,
+  .table-wrap,
+  table {
+    border-color: #374151;
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.35);
+  }
+}
+
+/* ---------- DARK CARD SURFACES ---------- */
+body.dark-mode .card,
+body.dark-mode .panel,
+body.dark-mode .dashboard-card,
+body.dark-mode .stat-box,
+body.dark-mode .feed-item,
+[data-theme='dark'] .card,
+[data-theme='dark'] .panel,
+[data-theme='dark'] .dashboard-card,
+[data-theme='dark'] .stat-box,
+[data-theme='dark'] .feed-item,
+.dark .card,
+.dark .panel,
+.dark .dashboard-card,
+.dark .stat-box,
+.dark .feed-item {
+  background-color: #151f38 !important;
+  border: 1px solid #243254 !important;
+  color: #f8fafc !important;
+}
+
+body.dark-mode .card p,
+body.dark-mode .panel p,
+body.dark-mode .dashboard-card p,
+body.dark-mode .stat-box span,
+body.dark-mode .feed-item small,
+body.dark-mode .feed-item p,
+[data-theme='dark'] .card p,
+[data-theme='dark'] .panel p,
+[data-theme='dark'] .dashboard-card p,
+[data-theme='dark'] .stat-box span,
+[data-theme='dark'] .feed-item small,
+[data-theme='dark'] .feed-item p,
+.dark .card p,
+.dark .panel p,
+.dark .dashboard-card p,
+.dark .stat-box span,
+.dark .feed-item small,
+.dark .feed-item p {
+  color: #94a3b8 !important;
+}
+
 @keyframes toastOut {
   from { transform: translateX(0);    opacity: 1; }
   to   { transform: translateX(120%); opacity: 0; }

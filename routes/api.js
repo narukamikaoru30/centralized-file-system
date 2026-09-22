@@ -4,6 +4,8 @@ const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
 const os = require('os');
+const fs = require('fs').promises;
+const path = require('path');
 const { requireActor } = require('../middleware/authMiddleware');
 const { requireActive, requireRole } = require('../middleware/roleMiddleware');
 const Report = require('../models/Report');
@@ -229,20 +231,16 @@ router.get(
       const uptimeSeconds = process.uptime();
 
       // Disk (uploads directory size)
-      const fs = require('fs');
-      const path = require('path');
       const uploadsDir = path.join(__dirname, '..', 'uploads');
       let uploadsDirSize = 0;
       let uploadsFileCount = 0;
       try {
-        const files = fs.readdirSync(uploadsDir);
+        const files = await fs.readdir(uploadsDir);
         uploadsFileCount = files.length;
-        for (const f of files) {
-          try {
-            const stat = fs.statSync(path.join(uploadsDir, f));
-            uploadsDirSize += stat.size;
-          } catch (_) {}
-        }
+        const stats = await Promise.all(files.map(file =>
+          fs.stat(path.join(uploadsDir, file)).catch(() => null)
+        ));
+        uploadsDirSize = stats.reduce((total, stat) => total + (stat ? stat.size : 0), 0);
       } catch (_) {}
 
       // Counts

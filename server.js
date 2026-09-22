@@ -4,6 +4,8 @@ enforceEnv();
 
 const express = require("express");
 const bodyParser = require("body-parser");
+const helmet = require("helmet");
+const mongoSanitize = require("express-mongo-sanitize");
 const path = require("path");
 const crypto = require("crypto");
 const fs = require("fs");
@@ -33,8 +35,40 @@ const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || "127.0.0.1";
 const NODE_ENV = process.env.NODE_ENV || "development";
 
+const allowedCorsOrigins = new Set(
+  String(process.env.CORS_ORIGINS || "")
+    .split(",")
+    .map(origin => origin.trim())
+    .filter(Boolean)
+);
+
 app.get("/healthz", (req, res) => {
   res.status(200).json({ status: "ok" });
+});
+
+app.use(helmet({
+  contentSecurityPolicy: false,
+  frameguard: { action: "deny" },
+  referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+  noSniff: true
+}));
+
+app.use((req, res, next) => {
+  const origin = req.get("Origin");
+  if (!origin) return next();
+
+  const requestOrigin = `${req.protocol}://${req.get("host")}`;
+  if (origin !== requestOrigin && !allowedCorsOrigins.has(origin)) {
+    return res.status(403).json({ success: false, message: "Origin not allowed" });
+  }
+
+  res.setHeader("Access-Control-Allow-Origin", origin);
+  res.setHeader("Vary", "Origin");
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-CSRF-Token, X-Requested-With");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+  if (req.method === "OPTIONS") return res.sendStatus(204);
+  return next();
 });
 
 // Security Headers Middleware (similar to helmet)
@@ -43,7 +77,7 @@ app.use((req, res, next) => {
   res.locals.nonce = crypto.randomBytes(16).toString("base64");
   
   // Prevent clickjacking
-  res.setHeader("X-Frame-Options", "SAMEORIGIN");
+  res.setHeader("X-Frame-Options", "DENY");
   
   // Prevent MIME type sniffing
   res.setHeader("X-Content-Type-Options", "nosniff");
@@ -94,6 +128,12 @@ if (NODE_ENV === "production") {
 // Middleware
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json()); // ✅ Add JSON support
+app.use((req, res, next) => {
+  if (req.body) mongoSanitize.sanitize(req.body);
+  if (req.params) mongoSanitize.sanitize(req.params);
+  if (req.query) mongoSanitize.sanitize(req.query);
+  next();
+});
 app.use(sessionMiddleware);
 app.use(express.static(path.join(__dirname, "public")));
 
@@ -309,6 +349,19 @@ app.use("/messages", messagesRoutes);
 app.use("/notifications", notificationsRoutes);
 app.use("/api/v1", apiRoutes);
 app.use("/api/blockchain", blockchainRoutes);
+
+// Resolve the generic dashboard link used by shared account pages.
+app.get("/dashboard", (req, res) => {
+  const account = req.user || req.session?.user;
+  if (!account) return res.redirect("/auth/login");
+  if (account.totpEnabled && req.session?.is2FAComplete !== true) {
+    return res.redirect("/auth/2fa/verify");
+  }
+
+  if (account.role === "super_admin") return res.redirect("/auth/super");
+  if (account.role === "admin") return res.redirect("/auth/admin");
+  return res.redirect("/auth/user");
+});
 
 // Default route → show landing page
 app.get("/", (req, res) => {
