@@ -223,6 +223,7 @@
             font-weight: 800;
             background: linear-gradient(135deg, var(--primary-gold) 0%, var(--primary-red) 100%);
             -webkit-background-clip: text;
+            background-clip: text;
             -webkit-text-fill-color: transparent;
             letter-spacing: -0.5px;
         }
@@ -352,6 +353,7 @@
         .hero-title .highlight {
             background: linear-gradient(135deg, var(--primary-gold) 0%, var(--primary-red) 100%);
             -webkit-background-clip: text;
+            background-clip: text;
             -webkit-text-fill-color: transparent;
         }
 
@@ -452,6 +454,7 @@
             font-weight: 800;
             background: linear-gradient(135deg, var(--primary-gold) 0%, var(--primary-red) 100%);
             -webkit-background-clip: text;
+            background-clip: text;
             -webkit-text-fill-color: transparent;
         }
 
@@ -728,6 +731,7 @@
         .feature-icon i {
             background: linear-gradient(135deg, var(--primary-gold), var(--primary-red));
             -webkit-background-clip: text;
+            background-clip: text;
             -webkit-text-fill-color: transparent;
             transition: all 0.4s ease;
         }
@@ -1045,6 +1049,7 @@
             font-weight: 700;
             background: linear-gradient(135deg, var(--primary-gold), var(--primary-red));
             -webkit-background-clip: text;
+            background-clip: text;
             -webkit-text-fill-color: transparent;
         }
 
@@ -1182,4 +1187,71 @@
                 width: 100%;
                 justify-content: center;
             }
+        }
+
+        /* ========== SHARP UI TOKENS ========== */
+        :root {
+            --landing-card-border: rgba(255, 255, 255, 0.08);
+            --landing-light-border: #e2e8f0;
+            --landing-muted: #94a3b8;
+        }
+
+        body {
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .hero-card,
+        .feature-card,
+        .step-card,
+        .about-card,
+        .role-card,
+        .cta-card {
+            border: 1px solid var(--landing-card-border);
+            border-radius: 8px;
+            box-shadow: none;
+        }
+
+        .nav-btn,
+        .hero-btn,
+        .cta-btn {
+            border: 1px solid var(--landing-card-border);
+            border-radius: 6px;
+            box-shadow: none;
+        }
+
+        .hero-badge,
+        .section-badge,
+        .float-badge,
+        .hero-file-status {
+            border-radius: 6px;
+        }
+
+        .hero-title,
+        .section-title,
+        .cta-card h2 {
+            letter-spacing: -0.025em;
+        }
+
+        .nav-link,
+        .hero-subtitle,
+        .stat-label,
+        .hero-card-subtitle,
+        .hero-file-info span,
+        .section-subtitle,
+        .feature-card p,
+        .step-card p,
+        .about-card p,
+        .role-list li span,
+        .cta-card p,
+        footer p {
+            color: var(--landing-muted);
+        }
+
+        .feature-card:hover,
+        .step-card:hover,
+        .nav-btn:hover,
+        .hero-btn-primary:hover,
+        .cta-btn:hover {
+            box-shadow: none;
+            border-color: rgba(255, 255, 255, 0.16);
         }

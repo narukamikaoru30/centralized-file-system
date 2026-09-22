@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
   <%- include('partials/head', {
-    title: 'Admin Dashboard | Centralized File System',
-    description: 'Admin Dashboard - DOJ-PPA Centralized File System',
+    title: 'Admin Dashboard | PPO Regional FileSystem',
+    description: 'Admin Dashboard - PPO Regional FileSystem',
     cssFiles: ['/css/dashboard.css', '/css/admin-dashboard.css', '/css/system-refresh.css']
   }) %>
 </head>
@@ -226,7 +226,7 @@
       <!-- Reports -->
       <section class="reports" id="reports">
         <h2><i class="ri-line-chart-line section-icon"></i> System Reports</h2>
-        <button onclick="generateReport()"><i class="ri-file-chart-line"></i> Generate Report</button>
+        <button type="button" onclick="generateReport()"><i class="ri-file-chart-line"></i> Generate Report</button>
         <div id="reportOutput">
           <p class="text-muted-sm report-placeholder">No reports generated yet.</p>
         </div>
@@ -1194,7 +1194,50 @@
       );
     }
 
-    function generateReport() {
+    async function generateReport() {
+      const button = document.querySelector('.reports button');
+      const originalText = button ? button.innerHTML : '';
+
+      try {
+        if (button) {
+          button.disabled = true;
+          button.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Generating...';
+        }
+
+        const response = await fetch('/admin/dashboard/reports/export.csv', {
+          credentials: 'same-origin',
+          headers: { Accept: 'text/csv' }
+        });
+        if (!response.ok) {
+          let message = 'Unable to generate report';
+          try {
+            const payload = await response.json();
+            message = payload.message || message;
+          } catch (_) {}
+          throw new Error(message);
+        }
+
+        const blob = await response.blob();
+        const downloadUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = `admin_report_${new Date().toISOString().slice(0, 10)}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(downloadUrl);
+        showActionToast('Admin report download is ready.', 'success');
+      } catch (err) {
+        showActionToast(err.message || 'Unable to generate report', 'error');
+      } finally {
+        if (button) {
+          button.disabled = false;
+          button.innerHTML = originalText;
+        }
+      }
+    }
+
+    function renderReportSummary() {
       const reportDate = new Date().toLocaleString();
       document.getElementById('reportOutput').innerHTML = `
         <div class="report-card">
@@ -1210,7 +1253,6 @@
           </ul>
         </div>
       `;
-      addAudit('Report Generated', 'Admin Dashboard Summary');
     }
 
     function filterFiles() {

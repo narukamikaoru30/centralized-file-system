@@ -5,10 +5,16 @@ const File = require("../models/File");
 const Report = require("../models/Report");
 const Notification = require("../models/Notification");
 const { requireAuth } = require("../middleware/authMiddleware");
-const { requireActive } = require("../middleware/roleMiddleware");
+const { requireActive, requireRole } = require("../middleware/roleMiddleware");
 const BRANCH_OPTIONS = require("../config/branches");
 const { getGlobalSystemSettings } = require("../utils/systemSettings");
 const { pushFlash } = require("../utils/sessionHelpers");
+
+function getPageOptions(query = {}, defaultLimit = 50, maxLimit = 200) {
+  const page = Math.max(Number.parseInt(query.page, 10) || 1, 1);
+  const limit = Math.min(Math.max(Number.parseInt(query.limit, 10) || defaultLimit, 1), maxLimit);
+  return { page, limit, skip: (page - 1) * limit };
+}
 
 // -------------------- ADMIN DASHBOARD --------------------
 router.get("/admin", requireAuth({ mode: "redirect", message: "Unauthorized" }), requireActive({ mode: "redirect" }), async (req, res) => {
@@ -37,7 +43,8 @@ router.get("/admin-user-uploads", requireAuth({ mode: "redirect", message: "Unau
     const userIds = (await User.find(userQuery).select("_id")).map(u => u._id);
     const userFiles = await File.find({ owner: { $in: userIds } })
       .populate("owner", "fullname email role branch")
-      .sort({ uploadedAt: -1 });
+      .sort({ uploadedAt: -1 })
+      .limit(1000);
 
     res.render("adminUserUploads", {
       email: admin.email,
@@ -54,7 +61,11 @@ router.get("/admin-user-uploads", requireAuth({ mode: "redirect", message: "Unau
 });
 
 // -------------------- SUPER ADMIN DASHBOARD --------------------
-router.get("/super", async (req, res) => {
+router.get("/super",
+  requireAuth({ mode: "redirect", message: "Please log in to access the dashboard" }),
+  requireActive({ mode: "redirect" }),
+  requireRole(["super_admin"], { mode: "redirect" }),
+  async (req, res) => {
   try {
     const superAdmin = req.user;
     if (!superAdmin) {
@@ -68,6 +79,10 @@ router.get("/super", async (req, res) => {
 
     const flash = req.consumeFlash ? req.consumeFlash() : null;
     const systemSettings = await getGlobalSystemSettings();
+    const filePage = getPageOptions({ page: req.query.filePage, limit: req.query.fileLimit }, 50, 100);
+    const userPage = getPageOptions(req.query, 100, 200);
+    const adminPage = getPageOptions({ page: req.query.adminPage, limit: req.query.adminLimit }, 50, 100);
+    const reportPage = getPageOptions({ page: req.query.reportPage, limit: req.query.reportLimit }, 50, 200);
 
     const totalFiles = await File.countDocuments();
     const totalUsers = await User.countDocuments({ role: "user" });
@@ -76,10 +91,10 @@ router.get("/super", async (req, res) => {
     const activeUserAccounts = await User.countDocuments({ role: "user", active: { $ne: false } });
     const systemActions = await Report.countDocuments();
 
-    const allFiles = await File.find().populate("owner", "fullname email branch").sort({ uploadedAt: -1 }).limit(10);
-    const allUsers = await User.find().select("_id fullname email role branch active status avatar createdAt").sort({ _id: -1 });
-    const allAdmins = await User.find({ role: "admin" }).select("_id fullname email role branch active status avatar createdAt");
-    const auditLogs = await Report.find().sort({ date: -1 }).limit(20);
+    const allFiles = await File.find().populate("owner", "fullname email branch").sort({ uploadedAt: -1 }).skip(filePage.skip).limit(filePage.limit);
+    const allUsers = await User.find().select("_id fullname email role branch active status avatar createdAt").sort({ _id: -1 }).skip(userPage.skip).limit(userPage.limit);
+    const allAdmins = await User.find({ role: "admin" }).select("_id fullname email role branch active status avatar createdAt").sort({ _id: -1 }).skip(adminPage.skip).limit(adminPage.limit);
+    const auditLogs = await Report.find().sort({ date: -1 }).skip(reportPage.skip).limit(reportPage.limit);
     const recentNotifications = await Notification.find({
       $or: [
         { owner: superAdmin._id },
@@ -118,6 +133,12 @@ router.get("/super", async (req, res) => {
       systemSettings,
       branchAdminAssignments,
       auditLogs,
+      pagination: {
+        files: { page: filePage.page, limit: filePage.limit },
+        users: { page: userPage.page, limit: userPage.limit },
+        admins: { page: adminPage.page, limit: adminPage.limit },
+        reports: { page: reportPage.page, limit: reportPage.limit }
+      },
       recentNotifications,
       success: flash && flash.type === "success" ? flash.message : null,
       error: flash && flash.type === "error" ? flash.message : null
@@ -139,10 +160,12 @@ router.get("/user", requireAuth({ mode: "redirect", message: "Please log in to a
 
     const flash = req.consumeFlash ? req.consumeFlash() : null;
     const systemSettings = await getGlobalSystemSettings();
+    const filePage = getPageOptions(req.query, 100, 200);
+    const sharedPage = getPageOptions({ page: req.query.sharedPage, limit: req.query.sharedLimit }, 100, 200);
 
     let files = [];
     try {
-      files = await File.find({ owner: user._id, deleted: { $ne: true } }).sort({ uploadedAt: -1 });
+      files = await File.find({ owner: user._id, deleted: { $ne: true } }).sort({ uploadedAt: -1 }).skip(filePage.skip).limit(filePage.limit);
     } catch (err) {
       console.log("Error fetching files:", err.message);
     }
@@ -164,7 +187,7 @@ router.get("/user", requireAuth({ mode: "redirect", message: "Please log in to a
           }
         },
         deleted: { $ne: true }
-      }).populate("owner", "fullname email").sort({ uploadedAt: -1 });
+      }).populate("owner", "fullname email").sort({ uploadedAt: -1 }).skip(sharedPage.skip).limit(sharedPage.limit);
     } catch (err) {
       console.log("Error fetching shared files:", err.message);
     }
@@ -179,7 +202,8 @@ router.get("/user", requireAuth({ mode: "redirect", message: "Please log in to a
           deleted: { $ne: true }
         })
           .populate("owner", "fullname email branch")
-          .sort({ uploadedAt: -1 });
+          .sort({ uploadedAt: -1 })
+          .limit(200);
 
         const knownIds = new Set(sharedFiles.map(file => String(file._id)));
         sharedFiles.push(...officeFiles.filter(file => !knownIds.has(String(file._id))));
@@ -199,6 +223,10 @@ router.get("/user", requireAuth({ mode: "redirect", message: "Please log in to a
       systemSettings,
       files,
       sharedFiles,
+      pagination: {
+        files: { page: filePage.page, limit: filePage.limit },
+        sharedFiles: { page: sharedPage.page, limit: sharedPage.limit }
+      },
       success: flash && flash.type === "success" ? flash.message : null,
       error: flash && flash.type === "error" ? flash.message : null,
       viewReports: req.query.viewReports || null

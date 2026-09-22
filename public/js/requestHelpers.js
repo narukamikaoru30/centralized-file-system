@@ -84,6 +84,16 @@
     return (hiddenCsrf && hiddenCsrf.value) ? hiddenCsrf.value : '';
   }
 
+  function isCsrfMismatchResponse(response, payload) {
+    return response && response.status === 403 && payload && typeof payload.message === 'string' && payload.message.toLowerCase().includes('csrf token');
+  }
+
+  function showCsrfMismatchToast() {
+    if (typeof window !== 'undefined' && typeof window.showToast === 'function') {
+      window.showToast('Security token mismatch. Please try again.', 'error');
+    }
+  }
+
   async function requestJson(url, options = {}) {
     const normalized = normalizeRequestOptions(options);
     const method = (normalized.method || 'GET').toUpperCase();
@@ -97,14 +107,31 @@
       }
     }
 
-    const response = await fetch(url, normalized);
-    const contentType = response.headers.get('content-type') || '';
+    let response = await fetch(url, normalized);
+    let contentType = response.headers.get('content-type') || '';
     let payload;
 
     if (contentType.includes('application/json')) {
       payload = await response.json();
     } else {
       payload = { success: false, message: `Request failed (${response.status})` };
+    }
+
+    if (isCsrfMismatchResponse(response, payload)) {
+      const refreshedToken = await refreshCsrfToken();
+      if (refreshedToken) {
+        const retryOptions = { ...normalized, headers: { ...normalized.headers, 'X-CSRF-Token': refreshedToken } };
+        response = await fetch(url, retryOptions);
+        contentType = response.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          payload = await response.json();
+        } else {
+          payload = { success: false, message: `Request failed (${response.status})` };
+        }
+      }
+      if (isCsrfMismatchResponse(response, payload)) {
+        showCsrfMismatchToast();
+      }
     }
 
     if (shouldHandleUnauthorized(response.status)) {

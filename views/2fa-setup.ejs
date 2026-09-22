@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
   <%- include('partials/head', {
-    title: '2FA Setup | Centralized File System',
-    description: '2FA Setup - DOJ-PPA Centralized File System',
+    title: '2FA Setup | PPO Regional FileSystem',
+    description: '2FA Setup - PPO Regional FileSystem',
     cssFiles: ['/css/2fa-setup.css', '/css/system-refresh.css']
   }) %>
 </head>
@@ -43,9 +43,32 @@
         <img src="<%= qrDataUrl %>" alt="Scan this QR code with your authenticator app" />
       </div>
 
+      <% if (typeof recoveryCodes !== 'undefined' && recoveryCodes && recoveryCodes.length) { %>
+        <div class="recovery-box">
+          <div class="recovery-header">
+            <div>
+              <div class="label">Recovery Codes</div>
+              <small>Save these in a safe place. Each code can be used once.</small>
+            </div>
+            <div class="recovery-actions">
+              <button type="button" class="mini-btn" data-copy-target="recoveryCodesText">Copy all</button>
+              <a class="mini-btn download-btn" href="data:text/plain;charset=utf-8,<%= encodeURIComponent(recoveryCodes.join('\n')) %>" download="recovery-codes.txt">Download</a>
+            </div>
+          </div>
+          <div id="recoveryCodesText" class="recovery-grid">
+            <% recoveryCodes.forEach(function(code) { %>
+              <span class="recovery-code"><%= code %></span>
+            <% }); %>
+          </div>
+        </div>
+      <% } %>
+
       <div class="secret-key">
         <div class="label">Manual Entry Key</div>
-        <div class="key"><%= secret %></div>
+        <div class="copy-row">
+          <div class="key"><%= secret %></div>
+          <button type="button" class="copy-btn" data-copy-value="<%= secret %>"><i class="ri-file-copy-line"></i> Copy</button>
+        </div>
       </div>
 
       <form method="POST" action="/auth/2fa/setup">
@@ -62,9 +85,44 @@
       </form>
 
       <div class="cancel-link">
-        <a href="/dashboard">Cancel and go back</a>
+        <a href="<%= role === 'super_admin' ? '/auth/super' : (role === 'admin' ? '/auth/admin' : '/auth/user') %>">Cancel and go back</a>
       </div>
     </div>
   </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      const copyButtons = document.querySelectorAll('[data-copy-value]');
+      const recoveryCopy = document.querySelector('[data-copy-target="recoveryCodesText"]');
+
+      copyButtons.forEach(function (button) {
+        button.addEventListener('click', async function () {
+          const value = button.getAttribute('data-copy-value');
+          try {
+            await navigator.clipboard.writeText(value);
+            const original = button.innerHTML;
+            button.innerHTML = '<i class="ri-check-line"></i> Copied';
+            setTimeout(() => { button.innerHTML = original; }, 1200);
+          } catch (err) {
+            button.innerHTML = '<i class="ri-alert-line"></i> Failed';
+          }
+        });
+      });
+
+      if (recoveryCopy) {
+        recoveryCopy.addEventListener('click', async function () {
+          const text = document.getElementById('recoveryCodesText')?.textContent?.trim();
+          try {
+            await navigator.clipboard.writeText(text || '');
+            const original = recoveryCopy.textContent;
+            recoveryCopy.textContent = 'Copied';
+            setTimeout(() => { recoveryCopy.textContent = original; }, 1200);
+          } catch (err) {
+            recoveryCopy.textContent = 'Copy failed';
+          }
+        });
+      }
+    });
+  </script>
 </body>
 </html>

@@ -2,6 +2,9 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const crypto = require("crypto");
+const { Transform } = require("stream");
+const { pipeline } = require("stream/promises");
+const { Upload } = require("@aws-sdk/lib-storage");
 const {
   S3Client,
   PutObjectCommand,
@@ -52,6 +55,37 @@ async function putObject({ filename, body, contentType }) {
 
   await fs.promises.mkdir(LOCAL_UPLOADS_DIR, { recursive: true });
   await fs.promises.writeFile(path.join(LOCAL_UPLOADS_DIR, path.basename(filename)), body);
+}
+
+async function uploadStream({ filename, stream, contentType }) {
+  if (hasR2Config) {
+    const upload = new Upload({
+      client,
+      params: {
+        Bucket: process.env.R2_BUCKET,
+        Key: objectKey(filename),
+        Body: stream,
+        ContentType: contentType || "application/octet-stream"
+      }
+    });
+    await upload.done();
+    return;
+  }
+
+  await fs.promises.mkdir(LOCAL_UPLOADS_DIR, { recursive: true });
+  await pipeline(stream, fs.createWriteStream(path.join(LOCAL_UPLOADS_DIR, path.basename(filename))));
+}
+
+async function getObjectStream(filename) {
+  if (hasR2Config) {
+    const response = await client.send(new GetObjectCommand({
+      Bucket: process.env.R2_BUCKET,
+      Key: objectKey(filename)
+    }));
+    return response.Body;
+  }
+
+  return fs.createReadStream(path.join(LOCAL_UPLOADS_DIR, path.basename(filename)));
 }
 
 async function getObjectBuffer(filename) {
@@ -105,9 +139,27 @@ async function objectExists(filename) {
   }
 }
 
-async function createTempFile(filename) {
+async function createTempFile(filename, maxBytes = 0) {
   const tempPath = path.join(os.tmpdir(), `centralized-file-${crypto.randomUUID()}-${path.basename(filename)}`);
-  await fs.promises.writeFile(tempPath, await getObjectBuffer(filename));
+  let totalBytes = 0;
+  const sizeGuard = new Transform({
+    transform(chunk, encoding, callback) {
+      totalBytes += chunk.length;
+      if (maxBytes > 0 && totalBytes > maxBytes) {
+        const error = new Error("Object exceeds the maximum processing size");
+        error.code = "MAX_OBJECT_SIZE";
+        return callback(error);
+      }
+      callback(null, chunk);
+    }
+  });
+
+  try {
+    await pipeline(await getObjectStream(filename), sizeGuard, fs.createWriteStream(tempPath));
+  } catch (error) {
+    await fs.promises.unlink(tempPath).catch(() => {});
+    throw error;
+  }
   return tempPath;
 }
 
@@ -115,6 +167,8 @@ module.exports = {
   hasR2Config,
   createStorageFilename,
   putObject,
+  uploadStream,
+  getObjectStream,
   getObjectBuffer,
   getObjectMetadata,
   deleteObject,

@@ -1,5 +1,15 @@
 const mongoose = require("mongoose");
 
+const SENSITIVE_USER_FIELDS = [
+  "password",
+  "totpSecret",
+  "recoveryCodes",
+  "resetToken",
+  "resetTokenExpires",
+  "totpLastUsedWindow",
+  "totpLastUsedCodeHash"
+];
+
 const userSchema = new mongoose.Schema({
   fullname: { type: String, required: true },
   email: { type: String, required: true, unique: true },
@@ -19,13 +29,24 @@ const userSchema = new mongoose.Schema({
   lockUntil: { type: Date, default: null },
 
   // TOTP 2FA
-  totpSecret: { type: String, default: "" },     // encrypted TOTP secret
+  totpSecret: { type: String, default: "" },
   totpEnabled: { type: Boolean, default: false },
+  recoveryCodes: { type: [String], default: [] },
+  totpLastUsedWindow: { type: Number, default: null },
+  totpLastUsedCodeHash: { type: String, default: "" },
 
   // Password reset
   resetToken: { type: String, default: "" },
   resetTokenExpires: { type: Date, default: null }
 });
+
+function stripSensitiveUserFields(_doc, ret) {
+  for (const field of SENSITIVE_USER_FIELDS) delete ret[field];
+  return ret;
+}
+
+userSchema.set("toJSON", { transform: stripSensitiveUserFields });
+userSchema.set("toObject", { transform: stripSensitiveUserFields });
 
 userSchema.methods.isLocked = function () {
   return this.lockUntil && this.lockUntil > Date.now();

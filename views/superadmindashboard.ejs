@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
   <%- include('partials/head', {
-    title: 'Super Admin Dashboard | Centralized File System',
-    description: 'Super Admin Dashboard - DOJ-PPA Centralized File System',
+    title: 'Super Admin Dashboard | PPO Regional FileSystem',
+    description: 'Super Admin Dashboard - PPO Regional FileSystem',
     cssFiles: ['/css/dashboard.css', '/css/super-dashboard.css', '/css/system-refresh.css']
   }) %>
 </head>
@@ -36,7 +36,7 @@
           <div>
             <h1 id="superWelcomeName">Welcome, <%= fullname || "Super Admin" %></h1>
             <p>
-              Centralized File System — Full Control
+              PPO Regional FileSystem — Full Control
               <span id="superTimeoutBadge" class="session-timeout-badge"><i class="ri-timer-line"></i> Session timeout: <%= (systemSettings && systemSettings.autoLogoutMinutes) ? systemSettings.autoLogoutMinutes : 30 %> min</span>
             </p>
           </div>

@@ -167,7 +167,7 @@ function setAccessCookie(res, token) {
 }
 
 function setRefreshCookie(res, refreshToken) {
-  setCookie(res, REFRESH_COOKIE_NAME, refreshToken, REFRESH_TTL_SECONDS, "Strict");
+  setCookie(res, REFRESH_COOKIE_NAME, refreshToken, REFRESH_TTL_SECONDS, "Lax");
 }
 
 function clearAccessCookie(res) {
@@ -182,7 +182,7 @@ function clearRefreshCookie(res) {
   const secureCookie = process.env.NODE_ENV === "production" ? "; Secure" : "";
   res.append(
     "Set-Cookie",
-    `${REFRESH_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${secureCookie}`
+    `${REFRESH_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secureCookie}`
   );
 }
 

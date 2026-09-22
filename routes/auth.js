@@ -5,11 +5,14 @@ const User = require("../models/User");
 const AuditLog = require("../models/AuditLog");
 const Branch = require("../models/Branch");
 const bcrypt = require("bcrypt");
-const rateLimit = require("express-rate-limit");
+const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
+const OTPAuth = require("otpauth");
+const QRCode = require("qrcode");
 const BRANCH_OPTIONS = require("../config/branches");
 const { requireAuth } = require("../middleware/authMiddleware");
 const {
   setSessionCookie,
+  clearSessionCookie,
   resolveSessionId,
   ensureSessionId,
   pushFlash,
@@ -18,6 +21,8 @@ const {
 const {
   createSession,
   getSession,
+  updateSession,
+  destroySession,
   setSessionFlash,
   SESSION_COOKIE_NAME,
   parseCookies
@@ -77,6 +82,18 @@ const resetLimiter = rateLimit({
 const twoFALimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 5,
+  keyGenerator(req) {
+    const userId = req.user?._id
+      || req.session?.userId
+      || req.session?.pendingTotpUserId
+      || req.body?.userId;
+    if (userId) return `user:${String(userId)}`;
+
+    const sid = resolveSessionId(req);
+    if (sid) return `session:${sid}`;
+
+    return `ip:${ipKeyGenerator(req.ip || "unknown")}`;
+  },
   standardHeaders: true,
   legacyHeaders: false,
   handler(req, res) {
@@ -84,6 +101,15 @@ const twoFALimiter = rateLimit({
     return res.redirect("/auth/login");
   }
 });
+
+function resetTwoFAAttempts(req, userId) {
+  const key = userId
+    ? `user:${String(userId)}`
+    : (resolveSessionId(req) ? `session:${resolveSessionId(req)}` : null);
+  if (key && typeof twoFALimiter.resetKey === "function") {
+    twoFALimiter.resetKey(key);
+  }
+}
 
 const resetPasswordLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
@@ -96,6 +122,72 @@ const resetPasswordLimiter = rateLimit({
   }
 });
 
+function generateRecoveryCodes() {
+  const codes = new Set();
+  while (codes.size < 8) {
+    const code = crypto.randomBytes(4).toString("hex").toUpperCase().slice(0, 8);
+    if (code.length === 8) codes.add(code);
+  }
+  return Array.from(codes);
+}
+
+function hashRecoveryCode(code) {
+  return crypto.createHash("sha256").update((code || "").trim().toUpperCase()).digest("hex");
+}
+
+function isTotpReplay(user, token) {
+  if (!user || !token) return false;
+
+  const candidateHash = hashRecoveryCode(token);
+  const lastWindow = Number(user.totpLastUsedWindow);
+  const lastHash = user.totpLastUsedCodeHash || "";
+
+  if (!lastHash || Number.isNaN(lastWindow)) return false;
+
+  const currentWindow = Math.floor(Date.now() / 30000);
+  const replayWindows = new Set([currentWindow - 1, currentWindow, currentWindow + 1]);
+
+  return replayWindows.has(lastWindow) && lastHash === candidateHash;
+}
+
+function normalizeTotpToken(token) {
+  return token == null ? "" : token.toString().trim();
+}
+
+function normalizeTotpSecret(secret) {
+  return secret == null ? "" : secret.toString().replace(/\s+/g, "").trim().toUpperCase();
+}
+
+function createTotp(secret, label) {
+  const normalizedSecret = normalizeTotpSecret(secret);
+  return new OTPAuth.TOTP({
+    issuer: "CFS-DOJ-PPA",
+    label: label || "CFS-DOJ-PPA",
+    algorithm: "SHA1",
+    digits: 6,
+    period: 30,
+    secret: OTPAuth.Secret.fromBase32(normalizedSecret)
+  });
+}
+
+function logTotpDiagnostic(context, totp, incomingToken, delta) {
+  if (process.env.NODE_ENV === "production") return;
+  console.log(`[2FA:${context}]`, {
+    serverUtc: new Date().toISOString(),
+    expectedCode: totp.generate(),
+    incomingCode: normalizeTotpToken(incomingToken),
+    validationDelta: delta
+  });
+}
+
+function verifyTotpToken(user, token) {
+  if (!user || !user.totpSecret) return false;
+
+  const totp = createTotp(user.totpSecret, user.email);
+
+  const normalizedToken = normalizeTotpToken(token);
+  return totp.validate({ token: normalizedToken, window: 1 }) !== null;
+}
 
 // ==================== REGISTER ====================
 router.get("/register", async (req, res) => {
@@ -142,6 +234,7 @@ router.post("/register", registerLimiter, async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 12);
     const newUser = new User({ fullname, email, password: hashedPassword, role, branch: selectedBranch });
     await newUser.save();
+    resetTwoFAAttempts(req, newUser._id);
     pushFlash(req, res, "success", "Account created successfully");
     res.redirect("/auth/login");
   } catch (error) {
@@ -236,11 +329,20 @@ router.post("/login", loginLimiter, async (req, res) => {
       if (session) {
         session.pendingTotpUserId = String(user._id);
         session.pendingTotpAt = Date.now();
+        session.twoFAAttempts = 0;
+        session.is2FAComplete = false;
       }
+      resetTwoFAAttempts(req, user._id);
       return res.redirect("/auth/2fa/verify");
     }
 
     const sid = ensureSessionId(req, res);
+    const session = getSession(sid);
+    if (session) {
+      session.twoFAAttempts = 0;
+      session.is2FAComplete = true;
+    }
+    resetTwoFAAttempts(req, user._id);
     const accessSigned = signAccessToken(user);
     req.user = user;
     req.actor = user;
@@ -274,6 +376,10 @@ router.get("/logout", (req, res) => {
   if (req.user && req.user._id) {
     AuditLog.create({ user: req.user._id, action: "logout", details: "User logged out", ip: req.ip || "", userAgent: (req.headers["user-agent"] || "").slice(0, 300) }).catch(() => {});
   }
+
+  const sid = resolveSessionId(req);
+  if (sid) destroySession(sid);
+  clearSessionCookie(res);
 
   Promise.all([
     revokeAccessTokenFromRaw(accessToken, "logout"),
@@ -396,8 +502,6 @@ router.post("/reset-password/:token", resetPasswordLimiter, async (req, res) => 
 
 
 // ==================== 2FA TOTP ====================
-const OTPAuth = require("otpauth");
-const QRCode = require("qrcode");
 
 router.get("/2fa/setup", twoFALimiter, requireAuth({ mode: "redirect" }), async (req, res) => {
   const user = req.user;
@@ -406,72 +510,87 @@ router.get("/2fa/setup", twoFALimiter, requireAuth({ mode: "redirect" }), async 
     return res.redirect("/auth/user");
   }
 
-  const secret = new OTPAuth.Secret({ size: 20 });
-  const totp = new OTPAuth.TOTP({
-    issuer: "CFS-DOJ-PPA",
-    label: user.email,
-    algorithm: "SHA1",
-    digits: 6,
-    period: 30,
-    secret
-  });
+  const sid = ensureSessionId(req, res);
+  const session = getSession(sid);
+  const pendingSecret = session && session.pendingTotpSecret;
+  const pendingRecoveryCodes = session && session.pendingTotpRecoveryCodes;
+  const secret = pendingSecret
+    ? OTPAuth.Secret.fromBase32(normalizeTotpSecret(pendingSecret))
+    : new OTPAuth.Secret({ size: 20 });
+  const recoveryCodes = Array.isArray(pendingRecoveryCodes) && pendingRecoveryCodes.length
+    ? pendingRecoveryCodes
+    : generateRecoveryCodes();
+  const totp = createTotp(secret.base32, user.email);
 
   const otpauthUrl = totp.toString();
   const qrDataUrl = await QRCode.toDataURL(otpauthUrl);
 
-  const sid = resolveSessionId(req);
-  if (sid) {
-    const session = getSession(sid);
-    if (session) session.pendingTotpSecret = secret.base32;
+  if (session) {
+    session.pendingTotpSecret = normalizeTotpSecret(secret.base32);
+    session.pendingTotpRecoveryCodes = recoveryCodes;
   }
 
   res.render("2fa-setup", {
     qrDataUrl,
     secret: secret.base32,
-    error: null
+    recoveryCodes,
+    role: user.role,
+    error: null,
+    success: null
   });
 });
 
-router.post("/2fa/setup", requireAuth({ mode: "redirect" }), async (req, res) => {
+router.post("/2fa/setup", twoFALimiter, requireAuth({ mode: "redirect" }), async (req, res) => {
   const user = req.user;
   const { totpCode: token } = req.body;
+  const normalizedToken = normalizeTotpToken(token);
 
   const sid = resolveSessionId(req);
   const session = sid ? getSession(sid) : null;
   const pendingSecret = session && session.pendingTotpSecret;
+  const recoveryCodes = (session && session.pendingTotpRecoveryCodes) || generateRecoveryCodes();
 
   if (!pendingSecret) {
     pushFlash(req, res, "error", "2FA setup session expired. Please try again.");
     return res.redirect("/auth/2fa/setup");
   }
 
-  const totp = new OTPAuth.TOTP({
-    issuer: "CFS-DOJ-PPA",
-    label: user.email,
-    algorithm: "SHA1",
-    digits: 6,
-    period: 30,
-    secret: OTPAuth.Secret.fromBase32(pendingSecret)
-  });
+  const cleanPendingSecret = normalizeTotpSecret(pendingSecret);
+  const totp = createTotp(cleanPendingSecret, user.email);
 
-  const delta = totp.validate({ token: (token || "").trim(), window: 1 });
+  const delta = totp.validate({ token: normalizedToken, window: 1 });
+  logTotpDiagnostic("setup", totp, normalizedToken, delta);
   if (delta === null) {
     const qrDataUrl = await QRCode.toDataURL(totp.toString());
     return res.render("2fa-setup", {
       qrDataUrl,
       secret: pendingSecret,
-      error: "Invalid code. Please try again."
+      recoveryCodes,
+      role: user.role,
+      error: "Invalid code. Please check that your device time is synced and use the current authenticator code.",
+      success: null
     });
   }
 
-  user.totpSecret = pendingSecret;
+  user.totpSecret = cleanPendingSecret;
   user.totpEnabled = true;
+  user.recoveryCodes = recoveryCodes.map(code => hashRecoveryCode(code));
+  user.totpLastUsedWindow = null;
+  user.totpLastUsedCodeHash = "";
   await user.save();
+  resetTwoFAAttempts(req, user._id);
 
   delete session.pendingTotpSecret;
+  delete session.pendingTotpRecoveryCodes;
 
-  pushFlash(req, res, "success", "Two-factor authentication enabled successfully");
-  return res.redirect("/auth/user");
+  res.render("2fa-setup", {
+    qrDataUrl: await QRCode.toDataURL(totp.toString()),
+    secret: pendingSecret,
+    recoveryCodes,
+    role: user.role,
+    error: null,
+    success: "Two-factor authentication enabled successfully. Save the recovery codes below."
+  });
 });
 
 router.get("/2fa/verify", (req, res) => {
@@ -497,12 +616,14 @@ router.get("/2fa/verify", (req, res) => {
 });
 
 router.post("/2fa/verify", twoFALimiter, async (req, res) => {
-  const { token } = req.body;
+  const cleanToken = req.body.token?.toString().trim()
+    || req.body.totpCode?.toString().trim()
+    || "";
   const sid = resolveSessionId(req);
   const session = sid ? getSession(sid) : null;
 
   if (!session || !session.pendingTotpUserId) {
-    pushFlash(req, res, "error", "Invalid 2FA session");
+    pushFlash(req, res, "error", "Your 2FA login session is missing or expired. Please log in again.");
     return res.redirect("/auth/login");
   }
 
@@ -516,28 +637,65 @@ router.post("/2fa/verify", twoFALimiter, async (req, res) => {
   const user = await User.findById(session.pendingTotpUserId);
   if (!user || !user.totpSecret) {
     delete session.pendingTotpUserId;
-    pushFlash(req, res, "error", "User not found");
+    delete session.pendingTotpAt;
+    updateSession(sid, session);
+    pushFlash(req, res, "error", "2FA is not configured for this account. Please log in again.");
     return res.redirect("/auth/login");
   }
 
-  const totp = new OTPAuth.TOTP({
-    issuer: "CFS-DOJ-PPA",
-    label: user.email,
-    algorithm: "SHA1",
-    digits: 6,
-    period: 30,
-    secret: OTPAuth.Secret.fromBase32(user.totpSecret)
-  });
+  const normalizedToken = cleanToken;
+  const userHasRecoveryCodes = Array.isArray(user.recoveryCodes) && user.recoveryCodes.length > 0;
+  const replayDetected = isTotpReplay(user, normalizedToken);
 
-  const delta = totp.validate({ token: (token || "").trim(), window: 1 });
-  if (delta === null) {
-    pushFlash(req, res, "error", "Invalid verification code");
+  if (replayDetected) {
+    pushFlash(req, res, "error", "This code was already used. Please wait for a fresh code or use a recovery code.");
     return res.redirect("/auth/2fa/verify");
   }
 
-  // 2FA passed — complete login
+  let validTotp = false;
+  const totp = createTotp(user.totpSecret, user.email);
+
+  const delta = totp.validate({ token: cleanToken, window: 1 });
+  if (process.env.NODE_ENV !== "production") {
+    console.log("[2FA:login]", {
+      serverUtc: new Date().toISOString(),
+      expectedToken: totp.generate(),
+      receivedToken: cleanToken,
+      delta
+    });
+  }
+  if (delta !== null) {
+    validTotp = true;
+  } else if (userHasRecoveryCodes) {
+    const hashedInput = hashRecoveryCode(normalizedToken);
+    const matchedIndex = user.recoveryCodes.findIndex(code => code === hashedInput);
+    if (matchedIndex !== -1) {
+      validTotp = true;
+      user.recoveryCodes.splice(matchedIndex, 1);
+    }
+  }
+
+  if (!validTotp) {
+    pushFlash(req, res, "error", "Invalid verification code. Check that your phone time is synced and use the newest code from your authenticator app.");
+    return res.redirect("/auth/2fa/verify");
+  }
+
+  user.totpLastUsedWindow = Math.floor(Date.now() / 30000);
+  user.totpLastUsedCodeHash = hashRecoveryCode(normalizedToken);
+  await user.save();
+
+  session.user = user;
+  session.userId = String(user._id);
+  session.twoFAAttempts = 0;
+  session.is2FAComplete = true;
   delete session.pendingTotpUserId;
   delete session.pendingTotpAt;
+  updateSession(sid, session);
+  if (typeof req.session.save === "function") {
+    await new Promise((resolve, reject) => {
+      req.session.save((err) => (err ? reject(err) : resolve()));
+    });
+  }
 
   const accessSigned = signAccessToken(user);
   req.user = user;
@@ -554,19 +712,36 @@ router.post("/2fa/verify", twoFALimiter, async (req, res) => {
 
 router.post("/2fa/disable", requireAuth({ mode: "redirect" }), async (req, res) => {
   const user = req.user;
-  const { password } = req.body;
+  const { password, totpCode } = req.body;
 
   const isMatch = await bcrypt.compare(password || "", user.password);
   if (!isMatch) {
     return res.status(400).json({ success: false, message: "Invalid password. 2FA was not disabled." });
   }
 
-  // Clear all 2FA-related data including backup codes
+  if (!user.totpSecret || !user.totpEnabled) {
+    return res.status(400).json({ success: false, message: "2FA is not enabled for this account." });
+  }
+
+  const normalizedToken = normalizeTotpToken(totpCode);
+  const replayDetected = isTotpReplay(user, normalizedToken);
+  if (replayDetected) {
+    return res.status(400).json({ success: false, message: "This code has already been used. Please wait for a fresh one." });
+  }
+
+  const totp = createTotp(user.totpSecret, user.email);
+
+  const delta = totp.validate({ token: normalizedToken, window: 1 });
+  logTotpDiagnostic("disable", totp, normalizedToken, delta);
+  if (delta === null) {
+    return res.status(400).json({ success: false, message: "Invalid TOTP code. 2FA was not disabled." });
+  }
+
   user.totpEnabled = false;
   user.totpSecret = "";
-  if (user.backupCodes) {
-    user.backupCodes = [];
-  }
+  user.recoveryCodes = [];
+  user.totpLastUsedWindow = null;
+  user.totpLastUsedCodeHash = "";
   await user.save();
 
   return res.json({ success: true, message: "Two-factor authentication has been disabled" });
@@ -608,5 +783,12 @@ router.post("/refresh", async (req, res) => {
 
 
 module.exports = router;
+module.exports.generateRecoveryCodes = generateRecoveryCodes;
+module.exports.hashRecoveryCode = hashRecoveryCode;
+module.exports.isTotpReplay = isTotpReplay;
+module.exports.verifyTotpToken = verifyTotpToken;
+module.exports.normalizeTotpToken = normalizeTotpToken;
+module.exports.normalizeTotpSecret = normalizeTotpSecret;
+module.exports.createTotp = createTotp;
 
 

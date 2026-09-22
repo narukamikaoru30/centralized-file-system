@@ -125,36 +125,25 @@ router.get(
     const me = req.actor;
     const limit = Math.min(500, Math.max(1, parseInt(req.query.limit) || 100));
 
-    // Use aggregation to avoid N+1 query problem
-    const contacts = await User.aggregate([
-      { $match: { _id: { $ne: me._id } } },
-      { $limit: limit },
-      { $lookup: {
-        from: 'messages',
-        let: { userId: '$_id' },
-        pipeline: [
-          { $match: { $expr: { $or: [
-            { $and: [{ $eq: ['$from', me._id] }, { $eq: ['$to', '$$userId'] }] },
-            { $and: [{ $eq: ['$from', '$$userId'] }, { $eq: ['$to', me._id] }] }
-          ] } } },
-          { $sort: { date: -1 } },
-          { $limit: 1 },
-          { $project: { text: 1, date: 1, from: 1 } }
-        ],
-        as: 'lastMsg'
-      } },
-      { $unwind: { path: '$lastMsg', preserveNullAndEmptyArrays: true } },
-      { $project: {
-        _id: 1,
-        fullname: 1,
-        email: 1,
-        avatar: 1,
-        online: 1,
-        lastOnline: 1,
-        role: 1,
-        lastMessage: { $cond: [{ $ne: ['$lastMsg', null] }, '$lastMsg', null] }
-      } }
+    const [users, lastMessages] = await Promise.all([
+      User.find({ _id: { $ne: me._id } })
+        .select("_id fullname email avatar online lastOnline role")
+        .limit(limit)
+        .lean(),
+      Message.aggregate([
+        { $match: { $or: [{ from: me._id }, { to: me._id }] } },
+        { $sort: { date: -1 } },
+        { $addFields: {
+          contactId: { $cond: [{ $eq: ["$from", me._id] }, "$to", "$from"] }
+        } },
+        { $group: { _id: "$contactId", lastMessage: { $first: { text: "$text", date: "$date", from: "$from" } } } }
+      ])
     ]);
+    const lastMessageByUser = new Map(lastMessages.map(item => [String(item._id), item.lastMessage]));
+    const contacts = users.map(user => ({
+      ...user,
+      lastMessage: lastMessageByUser.get(String(user._id)) || null
+    }));
 
     return res.json({ success: true, data: contacts });
   } catch (err) {

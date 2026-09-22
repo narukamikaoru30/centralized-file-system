@@ -6,5 +6,5 @@ module.exports = [
   "Romblon PPO - Odiongan, Romblon",
   "Palawan I PPO - Palawan",
   "Palawan II PPO - Palawan",
-  "Puertp Princesa City PPO - Palawan"
+  "Puerto Princesa City PPO - Palawan"
 ];
