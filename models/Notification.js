@@ -23,6 +23,7 @@ const notificationSchema = new mongoose.Schema({
   icon: { type: String, default: '🔔' },
   read: { type: Boolean, default: false },
   date: { type: Date, default: Date.now },
+  branch: { type: String, default: "" },
   owner: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
   relatedFile: { type: mongoose.Schema.Types.ObjectId, ref: "File" },
   relatedUser: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
@@ -30,14 +31,41 @@ const notificationSchema = new mongoose.Schema({
 });
 
 notificationSchema.index({ owner: 1, date: -1 });
+notificationSchema.index({ branch: 1, date: -1 });
 notificationSchema.index({ owner: 1, read: 1 });
 notificationSchema.index({ type: 1 });
 
 // Auto-set icon from type on save
 notificationSchema.pre('save', async function() {
+  this.$locals.publishRecentActivity = this.isNew;
   if (this.isNew && !this.isModified('icon')) {
     this.icon = NOTIFICATION_ICONS[this.type] || '🔔';
   }
+  if (this.isNew && !this.branch) {
+    const [file, owner] = await Promise.all([
+      this.relatedFile
+        ? require("./File").findById(this.relatedFile).select("branch").lean()
+        : null,
+      this.owner
+        ? require("./User").findById(this.owner).select("branch").lean()
+        : null
+    ]);
+    this.branch = (file && file.branch) || (owner && owner.branch) || "";
+  }
+});
+
+notificationSchema.post("save", async function(notification) {
+  if (!notification.$locals.publishRecentActivity) return;
+  delete notification.$locals.publishRecentActivity;
+  await require("../utils/recentActivity").publishRecentActivity(notification);
+});
+
+notificationSchema.post("insertMany", async function(notifications) {
+  await Promise.all(
+    (notifications || []).map((notification) =>
+      require("../utils/recentActivity").publishRecentActivity(notification)
+    )
+  );
 });
 
 const Notification = mongoose.model("Notification", notificationSchema);

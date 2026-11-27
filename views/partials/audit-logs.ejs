@@ -1,0 +1,41 @@
+<%
+  const auditLogItems = (auditLogs || []).slice(0, 20);
+%>
+<section class="activity-panel-section audit-log-panel" id="audit" aria-labelledby="auditLogsTitle">
+  <div class="activity-section-heading">
+    <h2 id="auditLogsTitle"><i class="ri-file-list-3-line section-icon" aria-hidden="true"></i> Audit Logs</h2>
+    <span class="activity-count" data-audit-log-count aria-live="polite"><%= auditLogItems.length %> LOGS</span>
+  </div>
+  <div class="activity-panel" data-audit-log-feed role="feed" aria-label="Audit logs" aria-live="polite">
+    <% if (auditLogItems.length) { %>
+      <% auditLogItems.forEach(function(log) {
+        const actor = log.user && typeof log.user === "object" ? log.user : {};
+        const targetUser = log.targetUser && typeof log.targetUser === "object" ? log.targetUser : {};
+        const action = String(log.action || "Audit event").replace(/_/g, " ");
+        const details = log.details || log.filename || "";
+        const summary = details ? action + " - " + details : action;
+        const category = log.category || action;
+        const branch = log.branch || actor.branch || targetUser.branch || "N/A";
+        const ip = log.ip || log.ipAddress || "N/A";
+        const rawDate = log.timestamp || log.date || log.createdAt;
+        const date = rawDate ? new Date(rawDate) : null;
+        const validDate = date && !Number.isNaN(date.getTime());
+      %>
+        <article class="activity-item">
+          <div class="activity-icon activity-icon-audit" aria-hidden="true"><i class="ri-file-list-3-line"></i></div>
+          <div class="activity-body">
+            <strong title="<%= summary %>"><%= summary %></strong>
+            <div class="activity-details">
+              <span class="activity-type">Category: <%= category %></span>
+              <span class="activity-meta">Branch: <%= branch %></span>
+              <span class="activity-meta">IP: <%= ip %></span>
+              <time class="activity-meta" datetime="<%= validDate ? date.toISOString() : '' %>">Timestamp: <%= validDate ? date.toLocaleString() : "N/A" %></time>
+            </div>
+          </div>
+        </article>
+      <% }) %>
+    <% } else { %>
+      <div class="activity-empty"><i class="ri-inbox-line" aria-hidden="true"></i><span>No audit logs recorded yet.</span></div>
+    <% } %>
+  </div>
+</section>

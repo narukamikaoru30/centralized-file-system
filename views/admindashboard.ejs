@@ -4,7 +4,7 @@
   <%- include('partials/head', {
     title: 'Admin Dashboard | PPO Regional FileSystem',
     description: 'Admin Dashboard - PPO Regional FileSystem',
-    cssFiles: ['/css/dashboard.css', '/css/admin-dashboard.css', '/css/system-refresh.css']
+    cssFiles: ['/css/dashboard.css', '/css/admin-dashboard.css', '/css/system-refresh.css', '/css/recent-activity.css']
   }) %>
 </head>
 <body class="admin-dashboard-page">
@@ -184,44 +184,9 @@
         </div>
       </section>
 
-      <!-- Audit Logs -->
-      <section class="audit-logs" id="audit">
-        <h2><i class="ri-file-list-3-line section-icon"></i> Audit Logs</h2>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th class="sortable" onclick="sortTable(0, 'auditTable')">Action</th>
-                <th class="sortable" onclick="sortTable(1, 'auditTable')">File/User</th>
-                <th class="sortable" onclick="sortTable(2, 'auditTable')">Performed By</th>
-                <th class="sortable" onclick="sortTable(3, 'auditTable')">Date</th>
-              </tr>
-            </thead>
-            <tbody id="auditTable">
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <%- include('partials/audit-logs', { auditLogs: auditLogs || [] }) %>
 
-      <!-- Recent Activity -->
-      <section class="reports" id="reports">
-        <h2><i class="ri-notification-3-line section-icon"></i> Recent Activity</h2>
-        <div class="activity-panel" id="recentActivityPanel">
-          <% if ((recentNotifications || []).length) { %>
-            <% recentNotifications.forEach(function(note) { %>
-              <div class="activity-item">
-                <div class="activity-icon"><%= note.icon || '🔔' %></div>
-                <div class="activity-body">
-                  <strong><%= note.message %></strong>
-                  <div class="activity-meta"><%= new Date(note.date).toLocaleString() %></div>
-                </div>
-              </div>
-            <% }) %>
-          <% } else { %>
-            <div class="activity-empty">No file activity yet.</div>
-          <% } %>
-        </div>
-      </section>
+      <%- include('partials/recent-activity', { recentNotifications: recentNotifications || [] }) %>
 
       <!-- Reports -->
       <section class="reports" id="reports">
@@ -620,7 +585,7 @@
 
       const filesData = <%- JSON.stringify(files || []) %>;
       const usersData = <%- JSON.stringify(users || []) %>;
-      const auditLogsData = <%- JSON.stringify(auditLogs || []) %>;
+      let auditLogsData = <%- JSON.stringify(auditLogs || []) %>;
 
       function summarizeCategoryActivity(fileList) {
         const summary = {};
@@ -747,7 +712,7 @@
 
       repopulateFileTable(filesData);
       repopulateUserTable(usersData);
-      repopulateAuditTable(auditLogsData);
+      repopulateAuditLogs(auditLogsData);
       renderUsageGrowthInsights(stats, filesData);
       // The API provides fresh data even if the values passed to this template are stale.
       refreshDashboardData({ silent: true });
@@ -901,32 +866,6 @@
     let fileOperationInProgress = {};
     let roleChangeInProgress = {};
 
-    function renderRecentNotifications(notifications) {
-      const panel = document.getElementById('recentActivityPanel');
-      if (!panel) return;
-
-      if (!Array.isArray(notifications) || notifications.length === 0) {
-        panel.innerHTML = '<div class="activity-empty">No file activity yet.</div>';
-        return;
-      }
-
-      panel.innerHTML = notifications.map((note) => {
-        const icon = note.icon || '🔔';
-        const message = escapeHtml(note.message || 'New file activity');
-        const date = note.date ? new Date(note.date).toLocaleString() : '';
-
-        return `
-          <div class="activity-item">
-            <div class="activity-icon">${icon}</div>
-            <div class="activity-body">
-              <strong>${message}</strong>
-              <div class="activity-meta">${date}</div>
-            </div>
-          </div>
-        `;
-      }).join('');
-    }
-
     // Refresh dashboard data via API instead of full page reload
     async function refreshDashboardData({ silent = false } = {}) {
       try {
@@ -957,8 +896,9 @@
         // Refresh tables with updated data
         repopulateFileTable(data.files);
         repopulateUserTable(data.users);
-        repopulateAuditTable(data.auditLogs);
-        renderRecentNotifications(data.recentNotifications);
+        auditLogsData = Array.isArray(data.auditLogs) ? data.auditLogs : [];
+        repopulateAuditLogs(auditLogsData);
+        if (window.renderRecentActivities) window.renderRecentActivities(data.recentNotifications);
         renderUsageGrowthInsights(data.stats || {}, data.files || []);
         
         if (!silent) showActionToast('Dashboard refreshed', 'success');
@@ -1039,33 +979,41 @@
       }
     }
 
-    function repopulateAuditTable(auditLogsData) {
-      const auditTable = document.getElementById('auditTable');
-      if (!auditTable) return;
-      auditTable.innerHTML = '';
-      if (auditLogsData && auditLogsData.length > 0) {
-        auditLogsData.forEach((log, index) => {
-          const row = document.createElement('tr');
-          row.style.setProperty('--row-index', index);
-          // Handle both AuditLog model (with timestamp, user object) and old Report model
-          const logDate = formatDashboardDate(log.timestamp || log.date || log.createdAt);
-          const userName = typeof log.user === 'object' && log.user?.fullname 
-            ? log.user.fullname 
-            : (typeof log.user === 'string' ? log.user : 'Unknown User');
-          const fileOrTarget = log.details || log.filename || 'N/A';
-          row.innerHTML = `
-            <td>${escapeHtml(log.action || 'N/A')}</td>
-            <td>${escapeHtml(fileOrTarget)}</td>
-            <td>${escapeHtml(userName)}</td>
-            <td>${escapeHtml(logDate)}</td>
-          `;
-          auditTable.appendChild(row);
-        });
-      } else {
-        const emptyRow = document.createElement('tr');
-        emptyRow.innerHTML = '<td colspan="4">No audit logs recorded yet.</td>';
-        auditTable.appendChild(emptyRow);
-      }
+    function repopulateAuditLogs(auditLogsData) {
+      const feed = document.querySelector('[data-audit-log-feed]');
+      const count = document.querySelector('[data-audit-log-count]');
+      if (!feed) return;
+      const logs = Array.isArray(auditLogsData) ? auditLogsData.slice(0, 20) : [];
+      feed.innerHTML = logs.map((log) => {
+        const actor = log.user && typeof log.user === 'object' ? log.user : {};
+        const targetUser = log.targetUser && typeof log.targetUser === 'object' ? log.targetUser : {};
+        const action = String(log.action || 'Audit event').replace(/_/g, ' ');
+        const details = log.details || log.filename || '';
+        const summary = details ? `${action} - ${details}` : action;
+        const category = log.category || action;
+        const branch = log.branch || actor.branch || targetUser.branch || 'N/A';
+        const ip = log.ip || log.ipAddress || 'N/A';
+        const rawDate = log.timestamp || log.date || log.createdAt;
+        const date = rawDate ? new Date(rawDate) : null;
+        const validDate = date && !Number.isNaN(date.getTime());
+        const datetime = validDate ? date.toISOString() : '';
+        const timestamp = validDate ? date.toLocaleString() : 'N/A';
+        return `
+          <article class="activity-item">
+            <div class="activity-icon activity-icon-audit" aria-hidden="true"><i class="ri-file-list-3-line"></i></div>
+            <div class="activity-body">
+              <strong title="${escapeHtml(summary)}">${escapeHtml(summary)}</strong>
+              <div class="activity-details">
+                <span class="activity-type">Category: ${escapeHtml(category)}</span>
+                <span class="activity-meta">Branch: ${escapeHtml(branch)}</span>
+                <span class="activity-meta">IP: ${escapeHtml(ip)}</span>
+                <time class="activity-meta" datetime="${escapeHtml(datetime)}">Timestamp: ${escapeHtml(timestamp)}</time>
+              </div>
+            </div>
+          </article>
+        `;
+      }).join('') || '<div class="activity-empty"><i class="ri-inbox-line" aria-hidden="true"></i><span>No audit logs recorded yet.</span></div>';
+      if (count) count.textContent = `${logs.length} LOGS`;
     }
 
     function deleteAdminFile(fileId) {
@@ -1264,25 +1212,13 @@
     }
 
     function addAudit(action, target) {
-      const row = document.createElement('tr');
-      const today = new Date().toISOString().split('T')[0];
-      const auditTableEl = document.getElementById('auditTable');
-      if (!auditTableEl) return;
-      const currentIndex = auditTableEl.rows.length;
-      row.style.setProperty('--row-index', currentIndex);
-      const tdAction = document.createElement('td');
-      tdAction.textContent = action;
-      const tdTarget = document.createElement('td');
-      tdTarget.textContent = target;
-      const tdUser = document.createElement('td');
-      tdUser.textContent = adminDisplayName || 'Admin';  // Use dynamic value instead of hardcoded
-      const tdDate = document.createElement('td');
-      tdDate.textContent = today;
-      row.appendChild(tdAction);
-      row.appendChild(tdTarget);
-      row.appendChild(tdUser);
-      row.appendChild(tdDate);
-      auditTableEl.appendChild(row);
+      auditLogsData = [{
+        action,
+        details: target,
+        timestamp: new Date().toISOString(),
+        user: { fullname: adminDisplayName || 'Admin', branch: <%- JSON.stringify(branch || '') %> }
+      }, ...auditLogsData].slice(0, 20);
+      repopulateAuditLogs(auditLogsData);
     }
   </script>
   <%- include('partials/scripts', { email: email || '', fullname: fullname || '', role: role || '' }) %>

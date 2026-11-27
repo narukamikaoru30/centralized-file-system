@@ -1,6 +1,7 @@
 (function() {
   const root = document.getElementById('messenger-root');
   if (!root) return;
+  if (root.parentElement !== document.body) document.body.appendChild(root);
 
   const meEmail = root.getAttribute('data-email');
   let meFull = root.getAttribute('data-fullname') || '';
@@ -10,9 +11,9 @@
   // compact floating messenger styles
   const style = document.createElement('style');
   style.textContent = `
-    #messenger-btn { position: fixed; right: 18px; bottom: 18px; width:60px; height:60px; border-radius:50%; background:linear-gradient(135deg,#D4AF37,#C1121F); color:white; display:flex; align-items:center; justify-content:center; cursor:pointer; z-index:9999; box-shadow:0 14px 36px rgba(212,175,55,0.35), 0 10px 24px rgba(0,0,0,0.16); font-size:22px; transition:transform .22s ease, box-shadow .22s ease; }
+    #messenger-btn { position: fixed; right: 18px; bottom: 18px; width:60px; height:60px; border-radius:50%; background:linear-gradient(135deg,#D4AF37,#C1121F); color:white; display:flex; align-items:center; justify-content:center; cursor:pointer; z-index:1020; box-shadow:0 14px 36px rgba(212,175,55,0.35), 0 10px 24px rgba(0,0,0,0.16); font-size:22px; transition:transform .22s ease, box-shadow .22s ease; }
     #messenger-btn:hover { transform: translateY(-2px) scale(1.04); box-shadow:0 18px 40px rgba(212,175,55,0.45), 0 12px 28px rgba(0,0,0,0.18); }
-    #messenger-panel { position: fixed; right: 18px; bottom: 96px; width: 560px; max-width:calc(100% - 36px); height: min(700px, calc(100vh - 130px)); background: linear-gradient(180deg,#fff,#fcfcfd); border-radius:18px; box-shadow: 0 30px 80px rgba(0,0,0,0.26); overflow: hidden; display:none; z-index:9999; font-family: 'Segoe UI', Inter, Arial, sans-serif; border:1px solid rgba(255,255,255,0.8); transform: translateY(8px) scale(.98); opacity:0; }
+    #messenger-panel { position: fixed; right: 18px; bottom: 96px; width: 560px; max-width:calc(100% - 36px); height: min(700px, calc(100vh - 130px)); background: linear-gradient(180deg,#fff,#fcfcfd); border-radius:18px; box-shadow: 0 30px 80px rgba(0,0,0,0.26); overflow: hidden; display:none; z-index:1020; font-family: 'Segoe UI', Inter, Arial, sans-serif; border:1px solid rgba(255,255,255,0.8); transform: translateY(8px) scale(.98); opacity:0; }
     #messenger-panel.show { display:flex; flex-direction:column; animation: msrPanelIn .25s ease forwards; }
     @keyframes msrPanelIn { to { transform: translateY(0) scale(1); opacity:1; } }
     .msr-top { padding:12px 14px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,.25); background:linear-gradient(100deg,#D4AF37, #C1121F); color:white; font-weight:700; }
@@ -29,7 +30,7 @@
     .msr-mute::before { content:none !important; display:none !important; }
     .msr-body { display:flex; gap:0; flex:1; min-height:0; }
     #messenger-contacts { width:190px; background:#fff; border-right:1px solid #f2f4f7; overflow:auto; min-height:0; }
-    .msr-search-wrap { padding:10px; border-bottom:1px solid #f6f7f9; background:#fff; position:sticky; top:0; z-index:2; }
+    .msr-search-wrap { padding:10px; border-bottom:1px solid #f6f7f9; background:#fff; position:sticky; top:0; z-index:100; }
     .msr-sort-wrap { margin-top:8px; }
     #msr-search { width:100%; padding:9px 10px; border-radius:10px; border:1px solid #e6e9ef; font-size:13px; }
     #msr-sort-toggle { width:100%; padding:7px 9px; border-radius:9px; border:1px solid #e6e9ef; font-size:12px; background:#fff; color:#374151; font-weight:700; cursor:pointer; }
@@ -67,7 +68,7 @@
     .msg { margin-bottom:10px; max-width:82%; padding:9px 11px; border-radius:12px; font-size:13.5px; line-height:1.35; box-shadow:0 2px 8px rgba(0,0,0,.05); }
     .msg.me { background:linear-gradient(135deg, rgba(212, 175, 55, 0.15), rgba(193, 18, 31, 0.12)); margin-left:auto; border-bottom-right-radius:4px; color:#1f2937; }
     .msg.them { background:#f3f4f6; margin-right:auto; border-bottom-left-radius:4px; color:#1f2937; }
-    .msr-toast-wrap { position:fixed; right:18px; top:18px; z-index:10000; display:grid; gap:10px; width:min(420px, calc(100vw - 32px)); }
+    .msr-toast-wrap { position:fixed; right:18px; top:18px; z-index:99999; display:grid; gap:10px; width:min(420px, calc(100vw - 32px)); }
     .msr-toast { background:#ffffff; border:1px solid #fde3d8; border-left:5px solid #D4AF37; border-radius:12px; padding:12px 13px; box-shadow:0 12px 28px rgba(0,0,0,.16); animation: msrToastIn .18s ease; }
     .msr-toast-title { font-size:14px; font-weight:800; color:#111827; margin-bottom:4px; }
     .msr-toast-msg { font-size:13px; color:#4b5563; line-height:1.4; }
@@ -302,7 +303,7 @@
   let socket = null;
   let unreadCount = 0;
   const badge = document.createElement('div'); badge.id = 'messenger-badge'; badge.style.cssText = 'position:absolute; right:-6px; top:-6px; background:#C1121F; color:white; width:20px; height:20px; border-radius:50%; display:none; align-items:center; justify-content:center; font-size:12px; font-weight:700;';
-  btn.style.position = 'fixed'; btn.style.display = 'flex'; btn.style.alignItems = 'center'; btn.style.justifyContent = 'center'; btn.style.zIndex = '9999';
+  btn.style.position = 'fixed'; btn.style.display = 'flex'; btn.style.alignItems = 'center'; btn.style.justifyContent = 'center'; btn.style.zIndex = '1020';
   btn.appendChild(badge);
 
   async function loadContacts(){
@@ -382,6 +383,8 @@
     s.onload = () => {
       try {
         socket = io();
+        window.appSocket = socket;
+        window.dispatchEvent(new CustomEvent('app:socket-ready', { detail: { socket } }));
         socket.emit('identify', meEmail);
         socket.on('message', (m) => {
           // if the incoming message is for me

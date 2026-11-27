@@ -52,6 +52,9 @@ function validateEnv() {
       if (!process.env[varName] || process.env[varName].trim() === '') {
         missing.push(varName);
       }
+      if (!process.env.JWT_PRIVATE_KEY && !process.env.JWT_PRIVATE_KEY_PATH) {
+        missing.push('JWT_PRIVATE_KEY');
+      }
     }
 
     if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {

@@ -12,6 +12,7 @@ const {
   DeleteObjectCommand,
   HeadObjectCommand
 } = require("@aws-sdk/client-s3");
+const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 
 const LOCAL_UPLOADS_DIR = path.join(__dirname, "..", "uploads");
 const hasR2Config = Boolean(
@@ -139,6 +140,26 @@ async function objectExists(filename) {
   }
 }
 
+async function createPresignedGetUrl(filename, expiresIn = 60, contentDisposition) {
+  if (!hasR2Config) throw new Error("R2 storage is not configured");
+  const command = new GetObjectCommand({
+    Bucket: process.env.R2_BUCKET,
+    Key: objectKey(filename),
+    ...(contentDisposition ? { ResponseContentDisposition: contentDisposition } : {})
+  });
+  return getSignedUrl(client, command, { expiresIn: Math.min(60, Math.max(1, expiresIn)) });
+}
+
+async function createPresignedPutUrl(filename, contentType, expiresIn = 60) {
+  if (!hasR2Config) throw new Error("R2 storage is not configured");
+  const command = new PutObjectCommand({
+    Bucket: process.env.R2_BUCKET,
+    Key: objectKey(filename),
+    ContentType: contentType || "application/octet-stream"
+  });
+  return getSignedUrl(client, command, { expiresIn: Math.min(60, Math.max(1, expiresIn)) });
+}
+
 async function createTempFile(filename, maxBytes = 0) {
   const tempPath = path.join(os.tmpdir(), `centralized-file-${crypto.randomUUID()}-${path.basename(filename)}`);
   let totalBytes = 0;
@@ -173,5 +194,7 @@ module.exports = {
   getObjectMetadata,
   deleteObject,
   objectExists,
+  createPresignedGetUrl,
+  createPresignedPutUrl,
   createTempFile
 };

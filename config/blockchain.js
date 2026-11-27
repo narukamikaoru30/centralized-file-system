@@ -176,9 +176,9 @@ const FILE_REGISTRY_ABI = [
 // Blockchain configuration
 const BLOCKCHAIN_CONFIG = {
     // Network settings
-    network: process.env.BLOCKCHAIN_NETWORK || 'polygon-mainnet',
-    rpcUrl: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
-    chainId: 137, // Polygon Mainnet
+    network: process.env.BLOCKCHAIN_NETWORK || 'polygon-amoy',
+    rpcUrl: process.env.BLOCKCHAIN_RPC_URL || process.env.POLYGON_RPC_URL || null,
+    chainId: (process.env.BLOCKCHAIN_NETWORK || 'polygon-amoy') === 'polygon-mainnet' ? 137 : 80002,
     
     // Contract settings
     contractAddress: process.env.FILEREGISTRY_ADDRESS || null, // Set after deployment

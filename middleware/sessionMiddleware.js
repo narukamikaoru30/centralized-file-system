@@ -147,7 +147,15 @@ async function sessionMiddleware(req, res, next) {
     if (accessToken) {
       try {
         const payload = verifyAccessToken(accessToken);
+        req.authPayload = payload;
         if (payload && payload.sub) {
+          const isTwoFactorPending = payload.scope === "2fa_pending";
+          const isTwoFactorRoute = (req.method === "POST" && req.originalUrl.startsWith("/auth/2fa/verify"))
+            || (req.originalUrl.startsWith("/auth/logout"));
+          if (isTwoFactorPending && !isTwoFactorRoute) {
+            clearAuthCookies(res);
+            return res.status(401).json({ success: false, message: "Complete two-factor authentication" });
+          }
           const revoked = await isAccessTokenRevoked(payload.jti);
           if (!revoked) {
             const user = await User.findById(payload.sub);

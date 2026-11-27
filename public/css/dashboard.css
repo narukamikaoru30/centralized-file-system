@@ -14,6 +14,7 @@ body {
   font-family: 'Inter', 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
   background: linear-gradient(135deg, #f0f4f8 0%, #e8ecf1 100%);
   color: #1a1a1a;
+  color-scheme: light;
   position: relative;
 }
 
@@ -96,6 +97,7 @@ body::after {
               inset 1px 0 1px rgba(255, 255, 255, 0.1);
   border-right: 1px solid rgba(255, 255, 255, 0.1);
   position: sticky;
+  z-index: 900;
   top: 0;
   height: 100vh;
   overflow-y: auto;
@@ -487,7 +489,7 @@ body.dark-mode .table-wrap {
   padding: 1rem;
   background: radial-gradient(circle at 20% 15%, rgba(212, 175, 55, 0.2), transparent 45%), rgba(15, 23, 42, 0.62);
   backdrop-filter: blur(7px);
-  z-index: 5500;
+  z-index: 1050;
   opacity: 0;
   transition: opacity 0.24s ease;
 }
@@ -498,6 +500,8 @@ body.dark-mode .table-wrap {
 }
 
 .profile-card {
+  position: relative;
+  z-index: 1060;
   width: min(94vw, 800px);
   max-height: 92vh;
   background: linear-gradient(165deg, rgba(255, 255, 255, 0.98), rgba(247, 250, 252, 0.97));
@@ -642,6 +646,7 @@ body.dark-mode .table-wrap {
 body.dark-mode {
   background: linear-gradient(135deg, #0f172a 0%, #111827 100%);
   color: #e5e7eb;
+  color-scheme: dark;
 }
 
 body.dark-mode::before {
@@ -709,7 +714,11 @@ body.dark-mode .theme-toggle:hover {
 }
 
 body.dark-mode .profile-form label { color: #d1d5db; }
-body.dark-mode .profile-form input { background: #1e293b; color: #e5e7eb; border-color: #334155; }
+body.dark-mode .profile-form input {
+  background: var(--modal-control-background);
+  color: var(--modal-control-color);
+  border-color: var(--modal-control-border);
+}
 
 /* ---------- MOBILE SIDEBAR TOGGLE ---------- */
 .sidebar-toggle {
@@ -717,7 +726,7 @@ body.dark-mode .profile-form input { background: #1e293b; color: #e5e7eb; border
   position: fixed;
   top: 1rem;
   left: 1rem;
-  z-index: 1100;
+  z-index: 1000;
   width: 44px;
   height: 44px;
   border: none;
@@ -736,7 +745,7 @@ body.dark-mode .profile-form input { background: #1e293b; color: #e5e7eb; border
   position: fixed;
   top: 1rem;
   right: 1rem;
-  z-index: 1100;
+  z-index: 1000;
   width: 44px;
   height: 44px;
   border: none;
@@ -755,7 +764,7 @@ body.dark-mode .profile-form input { background: #1e293b; color: #e5e7eb; border
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.5);
-  z-index: 999;
+  z-index: 950;
   opacity: 0;
   transition: opacity 0.3s ease;
 }
@@ -796,7 +805,7 @@ body.dark-mode .profile-form input { background: #1e293b; color: #e5e7eb; border
     bottom: 0;
     width: 280px;
     height: 100vh;
-    z-index: 1000;
+    z-index: 900;
     transform: translateX(-100%);
     transition: transform 0.3s ease;
   }
@@ -844,7 +853,8 @@ body.dark-mode .profile-form input { background: #1e293b; color: #e5e7eb; border
   position: fixed;
   top: 1.5rem;
   right: 1.5rem;
-  z-index: 9999;
+  z-index: 99999;
+  isolation: isolate;
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
@@ -926,6 +936,51 @@ body.dark-mode .toast {
   --enterprise-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
   --enterprise-gold: #D4AF37;
   --enterprise-gold-hover: #C5A028;
+  --modal-control-background: #ffffff;
+  --modal-select-background: #f8fafc;
+  --modal-control-color: #1e293b;
+  --modal-control-border: #cbd5e1;
+  --modal-control-placeholder: #64748b;
+}
+
+body.dark-mode {
+  --modal-control-background: #1e293b;
+  --modal-select-background: #0f172a;
+  --modal-control-color: #f8fafc;
+  --modal-control-border: #475569;
+  --modal-control-placeholder: #94a3b8;
+}
+
+:is(.modal, .profile-modal, .confirm-modal, .action-modal)
+  :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+  background-color: var(--modal-control-background) !important;
+  color: var(--modal-control-color) !important;
+  border-color: var(--modal-control-border) !important;
+}
+
+:is(.modal, .profile-modal, .confirm-modal, .action-modal)
+  :is(input:not([type="checkbox"]):not([type="radio"]), textarea) {
+  background-image: none !important;
+}
+
+:is(.modal, .profile-modal, .confirm-modal, .action-modal) select {
+  background-color: var(--modal-select-background) !important;
+}
+
+:is(.modal, .profile-modal, .confirm-modal, .action-modal) option {
+  background-color: var(--modal-select-background);
+  color: var(--modal-control-color);
+}
+
+:is(.modal, .profile-modal, .confirm-modal, .action-modal)
+  :is(input, textarea)::placeholder {
+  color: var(--modal-control-placeholder);
+}
+
+:is(.modal, .profile-modal, .confirm-modal, .action-modal)
+  :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea):focus {
+  border-color: var(--enterprise-gold) !important;
+  box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.4) !important;
 }
 
 .card,

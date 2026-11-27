@@ -17,7 +17,7 @@ const { sendPushToUser } = require("../utils/pushNotify");
 const { getGlobalSystemSettings } = require("../utils/systemSettings");
 const { pushFlash, pullFlash, ensureSessionId } = require("../utils/sessionHelpers");
 const { getSession, updateSession } = require("../utils/sessionStore");
-const { createStorageFilename, putObject, deleteObject } = require("../utils/objectStorage");
+const { createStorageFilename, uploadStream, deleteObject } = require("../utils/objectStorage");
 const { createCsv } = require("../utils/csvExporter");
 
 function getPageOptions(query = {}, defaultLimit = 100, maxLimit = 500) {
@@ -36,7 +36,17 @@ function sanitizeFilename(filename) {
 }
 
 const profileUpload = multer({
-  storage: multer.memoryStorage(),
+  storage: {
+    _handleFile(req, file, cb) {
+      const filename = createStorageFilename(file.originalname);
+      uploadStream({ filename, stream: file.stream, contentType: file.mimetype })
+        .then(() => cb(null, { filename, size: 0 }))
+        .catch(cb);
+    },
+    _removeFile(req, file, cb) {
+      deleteObject(file.filename).then(() => cb(null)).catch(cb);
+    }
+  },
   limits: { fileSize: PROFILE_PHOTO_MAX_SIZE },
   fileFilter: (req, file, cb) => {
     if (!PROFILE_PHOTO_ALLOWED_TYPES.includes(file.mimetype)) {
@@ -90,12 +100,7 @@ router.post("/user/profile", requireAuth({ mode: "json" }), (req, res) => {
 
       user.fullname = fullname;
       if (req.file) {
-        req.file.filename = createStorageFilename(req.file.originalname);
-        await putObject({
-          filename: req.file.filename,
-          body: req.file.buffer,
-          contentType: req.file.mimetype
-        });
+        req.file.filename = req.file.filename || createStorageFilename(req.file.originalname);
         if (user.avatar) await deleteObject(user.avatar);
         user.avatar = req.file.filename;
       }

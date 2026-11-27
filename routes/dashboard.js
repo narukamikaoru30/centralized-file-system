@@ -3,13 +3,12 @@ const router = express.Router();
 const User = require("../models/User");
 const File = require("../models/File");
 const Report = require("../models/Report");
-const Notification = require("../models/Notification");
 const { requireAuth } = require("../middleware/authMiddleware");
 const { requireActive, requireRole } = require("../middleware/roleMiddleware");
 const BRANCH_OPTIONS = require("../config/branches");
 const { getGlobalSystemSettings } = require("../utils/systemSettings");
 const { pushFlash } = require("../utils/sessionHelpers");
-const { dedupeRecentNotifications } = require("../utils/recentActivity");
+const { getRecentNotifications } = require("../utils/recentActivity");
 
 function getPageOptions(query = {}, defaultLimit = 50, maxLimit = 200) {
   const page = Math.max(Number.parseInt(query.page, 10) || 1, 1);
@@ -96,14 +95,7 @@ router.get("/super",
     const allUsers = await User.find().select("_id fullname email role branch active status avatar createdAt").sort({ _id: -1 }).skip(userPage.skip).limit(userPage.limit);
     const allAdmins = await User.find({ role: "admin" }).select("_id fullname email role branch active status avatar createdAt").sort({ _id: -1 }).skip(adminPage.skip).limit(adminPage.limit);
     const auditLogs = await Report.find().sort({ date: -1 }).skip(reportPage.skip).limit(reportPage.limit);
-    const recentNotificationCandidates = await Notification.find({
-      $or: [
-        { owner: superAdmin._id },
-        { relatedUser: superAdmin._id },
-        { type: { $in: ['download', 'general'] } }
-      ]
-    }).sort({ date: -1 }).limit(60).lean();
-    const recentNotifications = dedupeRecentNotifications(recentNotificationCandidates, 8);
+    const recentNotifications = await getRecentNotifications({ role: "super_admin", userId: superAdmin._id });
     const activeBranchAdmins = await User.find({ role: "admin", active: { $ne: false } }).select("email branch");
     const branchAdminLookup = new Map();
     activeBranchAdmins.forEach((admin) => {
@@ -162,6 +154,11 @@ router.get("/user", requireAuth({ mode: "redirect", message: "Please log in to a
 
     const flash = req.consumeFlash ? req.consumeFlash() : null;
     const systemSettings = await getGlobalSystemSettings();
+    const recentNotifications = await getRecentNotifications({
+      role: "user",
+      branch: user.branch,
+      userId: user._id
+    });
     const filePage = getPageOptions(req.query, 100, 200);
     const sharedPage = getPageOptions({ page: req.query.sharedPage, limit: req.query.sharedLimit }, 100, 200);
 
@@ -223,6 +220,7 @@ router.get("/user", requireAuth({ mode: "redirect", message: "Please log in to a
       avatar: user.avatar || "",
       totpEnabled: user.totpEnabled || false,
       systemSettings,
+      recentNotifications,
       files,
       sharedFiles,
       pagination: {

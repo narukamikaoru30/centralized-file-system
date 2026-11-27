@@ -15,7 +15,8 @@ const { requireAuth, requireActor } = require("../middleware/authMiddleware");
 const { requireActive, requireRole } = require("../middleware/roleMiddleware");
 const { getGlobalSystemSettings } = require("../utils/systemSettings");
 const { getBranchFilter, getUserFilter, validateAdminCanManageUser, validateAdminCanManageFile } = require("../utils/adminValidation");
-const { getObjectBuffer } = require("../utils/objectStorage");
+const { createPresignedGetUrl } = require("../utils/objectStorage");
+const { getRecentNotifications } = require("../utils/recentActivity");
 
 function serializeFileWithUploader(file) {
   const obj = file && typeof file.toObject === "function" ? file.toObject() : (file || {});
@@ -27,6 +28,18 @@ function serializeFileWithUploader(file) {
       branch: file.owner.branch || ""
     } : null
   };
+}
+
+async function getDashboardAuditLogs(admin) {
+  const branchUsers = await User.find(getUserFilter(admin, "user")).select("_id").lean();
+  const actorIds = [admin._id, ...branchUsers.map(user => user._id)];
+  const filter = admin.role === "super_admin" ? {} : { user: { $in: actorIds } };
+
+  return AuditLog.find(filter)
+    .populate("user", "fullname email branch")
+    .populate("targetUser", "fullname email branch")
+    .sort({ timestamp: -1 })
+    .limit(10);
 }
 
 async function buildUploadForecast(branchFilter, months = 1) {
@@ -138,19 +151,20 @@ router.get("/dashboard",
   const allUsers = await User.find(getUserFilter(admin, "user"))
     .select("_id fullname email role branch active status avatar createdAt")
     .limit(100);
-  const auditLogs = await AuditLog.find(isSuperAdmin ? {} : { user: admin._id })
-    .populate("user", "fullname email")
-    .populate("targetUser", "fullname email")
-    .sort({ timestamp: -1 })
-    .limit(10);
+  const auditLogs = await getDashboardAuditLogs(admin);
 
   const systemSettings = await getGlobalSystemSettings();
-  const recentNotifications = await Notification.find({ owner: admin._id }).sort({ date: -1 }).limit(8);
+  const recentNotifications = await getRecentNotifications({
+    role: admin.role,
+    branch: admin.branch,
+    userId: admin._id
+  });
   const forecast = await buildUploadForecast(branchFilter);
 
   res.render("admindashboard", {
     email: admin.email,
     fullname: admin.fullname,
+    branch: admin.branch || "",
     role: admin.role,
     avatar: admin.avatar || "",
     stats: {
@@ -206,17 +220,14 @@ router.get("/dashboard/data",
     .select("_id fullname email role branch active status avatar createdAt")
     .limit(100);
 
-  const auditLogs = await AuditLog.find(isSuperAdmin ? {} : { user: admin._id })
-    .populate("user", "fullname email")
-    .populate("targetUser", "fullname email")
-    .sort({ timestamp: -1 })
-    .limit(10);
+  const auditLogs = await getDashboardAuditLogs(admin);
 
   const forecast = await buildUploadForecast(branchFilter);
-  const recentNotifications = await Notification.find({ owner: admin._id })
-    .sort({ date: -1 })
-    .limit(8)
-    .lean();
+  const recentNotifications = await getRecentNotifications({
+    role: admin.role,
+    branch: admin.branch,
+    userId: admin._id
+  });
 
   res.json({
     success: true,
@@ -333,8 +344,9 @@ router.get("/file/view/:fileId",
     if (!safeFilename) return res.status(404).json({ success: false, message: "File is unavailable" });
 
     await writeFileAudit(req, file, "file_viewed", "Viewed");
-    res.type(file.mimeType || "application/octet-stream");
-    res.send(await getObjectBuffer(safeFilename));
+    const url = await createPresignedGetUrl(safeFilename, 60);
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    return res.redirect(302, url);
   })
 );
 
@@ -350,9 +362,10 @@ router.get("/file/download/:fileId",
     if (!safeFilename) return res.status(404).json({ success: false, message: "File is unavailable" });
 
     await writeFileAudit(req, file, "file_downloaded", "Downloaded");
-    res.type(file.mimeType || "application/octet-stream");
     res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(file.originalName || safeFilename)}`);
-    res.send(await getObjectBuffer(safeFilename));
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    const url = await createPresignedGetUrl(safeFilename, 60, `attachment; filename*=UTF-8''${encodeURIComponent(file.originalName || safeFilename)}`);
+    return res.redirect(302, url);
   })
 );
 

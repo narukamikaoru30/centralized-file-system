@@ -10,6 +10,7 @@ const path = require("path");
 const crypto = require("crypto");
 const fs = require("fs");
 const http = require('http');
+const mongoose = require("mongoose");
 const connectDB = require("./config/mongo"); // ✅ MongoDB connection
 const User = require("./models/User");
 const File = require("./models/File");
@@ -28,7 +29,7 @@ const { loadFeedbackWeights } = require('./ai/fileCategorizer');
 const { globalErrorHandler } = require('./utils/errorHandler');
 const { cleanupUploadFiles } = require('./utils/fileCleanup');
 const { buildAdminFileActivityPayloads } = require('./utils/fileAccessNotifications');
-const { getObjectBuffer, objectExists } = require('./utils/objectStorage');
+const { objectExists, createPresignedGetUrl } = require('./utils/objectStorage');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -183,8 +184,11 @@ async function notifyAdminsOfFileActivity({ actor, fileRecord, req, action }) {
 
   try {
     const adminUsers = await User.find({
-      role: { $in: ['admin', 'super_admin'] },
-      status: 'active'
+      status: 'active',
+      $or: [
+        { role: 'super_admin' },
+        { role: 'admin', branch: fileRecord.branch || '' }
+      ]
     }).select('_id');
 
     const payloads = buildAdminFileActivityPayloads({
@@ -238,26 +242,35 @@ app.get('/uploads/:filename', async (req, res) => {
       return res.status(404).json({ success: false, message: 'File not found' });
     }
 
-    const fileBuffer = await getObjectBuffer(safeFilename);
-
     const isDownload = req.query.download === '1' || req.query.download === 'true' || req.query.mode === 'download' || req.query.action === 'download';
     const action = isDownload ? 'download' : 'view';
 
-    // Admins and super_admins can access all files
-    if (req.user.role === 'admin' || req.user.role === 'super_admin') {
-      await notifyAdminsOfFileActivity({ actor: req.user, fileRecord: await File.findOne({ filename: requestedFilename, deleted: { $ne: true } }), req, action });
-      return res.send(fileBuffer);
+    // Admins and super admins receive presigned access only within the ACL below.
+    if (req.user.role === 'super_admin') {
+      const fileRecord = await File.findOne({ filename: requestedFilename, deleted: { $ne: true } });
+      await notifyAdminsOfFileActivity({ actor: req.user, fileRecord, req, action });
+      const url = await createPresignedGetUrl(safeFilename, 60);
+      return res.redirect(302, url);
+    }
+    if (req.user.role === 'admin') {
+      const fileRecord = await File.findOne({ filename: requestedFilename, deleted: { $ne: true }, branch: req.user.branch });
+      if (!fileRecord) return res.status(403).json({ success: false, message: 'Access denied' });
+      await notifyAdminsOfFileActivity({ actor: req.user, fileRecord, req, action });
+      const url = await createPresignedGetUrl(safeFilename, 60);
+      return res.redirect(302, url);
     }
 
     // Regular users can only access their own files or their own avatar
     if (req.user.avatar === requestedFilename) {
-      return res.send(fileBuffer);
+      const url = await createPresignedGetUrl(safeFilename, 60);
+      return res.redirect(302, url);
     }
 
     // Check ownership or shared access
     const fileRecord = await File.findOne({
       filename: requestedFilename,
       deleted: { $ne: true },
+      branch: req.user.branch,
       $or: [
         { owner: req.user._id },
         { sharedWith: req.user._id }
@@ -268,7 +281,8 @@ app.get('/uploads/:filename', async (req, res) => {
     }
 
     await notifyAdminsOfFileActivity({ actor: req.user, fileRecord, req, action });
-    res.send(fileBuffer);
+    const url = await createPresignedGetUrl(safeFilename, 60);
+    return res.redirect(302, url);
   } catch (err) {
     logger.error('Upload file access error:', err.message);
     res.status(500).json({ success: false, message: 'Error accessing file' });
@@ -283,42 +297,38 @@ const server = http.createServer(app);
 const { initSocketIO } = require('./utils/socketHandlers');
 const io = initSocketIO(server, app);
 
-// Public share link download (no auth required)
-app.get('/share/:token', async (req, res) => {
-  try {
-    // **FIX: Check limit BEFORE incrementing to prevent race condition**
-    const link = await ShareLink.findOne({
-      token: req.params.token,
-      expiresAt: { $gt: new Date() }
-    }).populate('file');
+const { rateLimit } = require('express-rate-limit');
+const shareLinkLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: 'Too many share-link requests'
+});
 
-    if (!link || !link.file) {
+// Public share link download (no auth required)
+app.get('/share/:token', shareLinkLimiter, async (req, res) => {
+  try {
+    const updated = await ShareLink.findOneAndUpdate(
+      {
+        token: req.params.token,
+        expiresAt: { $gt: new Date() },
+        $or: [
+          { maxDownloads: 0 },
+          { $expr: { $lt: ['$downloadCount', '$maxDownloads'] } }
+        ]
+      },
+      { $inc: { downloadCount: 1 } },
+      { new: true }
+    ).populate('file');
+
+    if (!updated || !updated.file || updated.file.deleted) {
       return res.status(404).send('Share link not found or expired');
     }
 
-    // Check download limit BEFORE incrementing
-    if (link.maxDownloads > 0 && link.downloadCount >= link.maxDownloads) {
-      return res.status(410).send('Download limit reached');
-    }
-
-    // Now safely increment counter - use atomic operation
-    const updated = await ShareLink.findByIdAndUpdate(
-      link._id,
-      { $inc: { downloadCount: 1 } },
-      { new: true }
-    );
-
-    // Path traversal guard
-    const uploadsBase = path.resolve(__dirname, 'uploads');
-    const filePath = path.resolve(uploadsBase, link.file.filename);
-    if (!filePath.startsWith(uploadsBase + path.sep)) {
-      return res.status(400).send('Invalid file reference');
-    }
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).send('File no longer exists');
-    }
-
-    res.download(filePath, link.file.originalName || link.file.filename);
+    const contentDisposition = `attachment; filename*=UTF-8''${encodeURIComponent(updated.file.originalName || updated.file.filename)}`;
+    const url = await createPresignedGetUrl(updated.file.filename, 60, contentDisposition);
+    return res.redirect(302, url);
   } catch (err) {
     logger.error('[Share Link Download] Error:', { error: err.message });
     res.status(500).send('Error processing share link');
@@ -660,6 +670,41 @@ function startServer(initialPort, host) {
 app.use(globalErrorHandler);
 
 startServer(PORT, HOST);
+
+let shutdownStarted = false;
+async function gracefulShutdown(signal) {
+  if (shutdownStarted) return;
+  shutdownStarted = true;
+  logger.info(`Received ${signal}; starting graceful shutdown`);
+
+  const forceTimer = setTimeout(() => {
+    logger.error('Graceful shutdown timed out after 10 seconds');
+    process.exit(1);
+  }, 10000);
+  forceTimer.unref();
+
+  try {
+    if (typeof io?.close === 'function') io.close();
+  } catch (error) {
+    logger.warn('Socket.IO shutdown failed', { error: error.message });
+  }
+
+  await new Promise((resolve) => {
+    server.close(() => resolve());
+  });
+
+  try {
+    await mongoose.connection.close();
+  } catch (error) {
+    logger.warn('MongoDB shutdown failed', { error: error.message });
+  }
+
+  clearTimeout(forceTimer);
+  process.exit(0);
+}
+
+process.once('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.once('SIGINT', () => gracefulShutdown('SIGINT'));
 
 // Process-level error handlers (log via winston)
 process.on('uncaughtException', (err) => {
