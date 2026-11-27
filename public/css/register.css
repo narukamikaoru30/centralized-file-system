@@ -598,6 +598,23 @@
       transition: transform 0.3s ease;
     }
 
+    .otp-resend-form { margin-top: 1rem; text-align: center; }
+    .otp-resend-btn {
+      padding: 0.5rem 0.75rem;
+      border: 0;
+      background: transparent;
+      color: #8a6a00;
+      font: inherit;
+      font-size: 0.9rem;
+      font-weight: 700;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+      cursor: pointer;
+    }
+    .otp-resend-btn:hover { color: var(--primary-red); }
+    .otp-expiry-note { margin-top: 0.5rem; color: #6b7280; text-align: center; font-size: 0.8rem; }
+    #emailOtp { text-align: center; font-size: 1.25rem; font-weight: 700; letter-spacing: 0.35em; }
+
     /* ========== ANIMATIONS ========== */
     @keyframes fadeInUp {
       from {

@@ -9,6 +9,7 @@ const { requireActive, requireRole } = require("../middleware/roleMiddleware");
 const BRANCH_OPTIONS = require("../config/branches");
 const { getGlobalSystemSettings } = require("../utils/systemSettings");
 const { pushFlash } = require("../utils/sessionHelpers");
+const { dedupeRecentNotifications } = require("../utils/recentActivity");
 
 function getPageOptions(query = {}, defaultLimit = 50, maxLimit = 200) {
   const page = Math.max(Number.parseInt(query.page, 10) || 1, 1);
@@ -95,13 +96,14 @@ router.get("/super",
     const allUsers = await User.find().select("_id fullname email role branch active status avatar createdAt").sort({ _id: -1 }).skip(userPage.skip).limit(userPage.limit);
     const allAdmins = await User.find({ role: "admin" }).select("_id fullname email role branch active status avatar createdAt").sort({ _id: -1 }).skip(adminPage.skip).limit(adminPage.limit);
     const auditLogs = await Report.find().sort({ date: -1 }).skip(reportPage.skip).limit(reportPage.limit);
-    const recentNotifications = await Notification.find({
+    const recentNotificationCandidates = await Notification.find({
       $or: [
         { owner: superAdmin._id },
         { relatedUser: superAdmin._id },
         { type: { $in: ['download', 'general'] } }
       ]
-    }).sort({ date: -1 }).limit(12);
+    }).sort({ date: -1 }).limit(60).lean();
+    const recentNotifications = dedupeRecentNotifications(recentNotificationCandidates, 8);
     const activeBranchAdmins = await User.find({ role: "admin", active: { $ne: false } }).select("email branch");
     const branchAdminLookup = new Map();
     activeBranchAdmins.forEach((admin) => {

@@ -142,12 +142,10 @@ const { csrfProtection, csrfTokenEndpoint } = require("./middleware/csrfMiddlewa
 app.use(csrfProtection({
   ignorePaths: [
     "/auth/login",          // Login form POST (no session yet)
-    "/auth/register",       // Registration form POST (no session yet)
     "/auth/forgot-password", // Password reset request
     "/auth/reset-password/", // Password reset with token
     "/auth/refresh",        // JWT refresh (uses refresh token cookie)
     "/auth/2fa/verify",     // 2FA verification during login
-    "/auth/invite/accept",  // Invitation acceptance
     "/auth/upload",         // Multipart upload handled post-multer
     "/socket.io"            // WebSocket connections
   ]

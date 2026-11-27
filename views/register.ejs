@@ -39,7 +39,7 @@
           <i class="ri-user-add-fill"></i>
         </div>
         <h1>Create Account</h1>
-        <p>Join our secure file management system</p>
+        <p>Join our secure file management system. We’ll email you a code to verify your address before creating the account.</p>
       </div>
 
       <!-- Error/Success messages -->
@@ -60,6 +60,7 @@
       <!-- Register Form -->
       <% const isInvite = typeof inviteToken !== 'undefined' && inviteToken; %>
       <form method="POST" action="<%= isInvite ? '/auth/invite/accept' : '/auth/register' %>" id="registerForm">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
         <% if (isInvite) { %>
           <input type="hidden" name="inviteToken" value="<%= inviteToken %>" />
         <% } %>
@@ -159,7 +160,7 @@
 
         <!-- Submit Button -->
         <button type="submit" class="submit-btn" id="submitBtn">
-          <span class="btn-text">Create Account</span>
+          <span class="btn-text">Send verification code</span>
           <span class="spinner"></span>
         </button>
       </form>

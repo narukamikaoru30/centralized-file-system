@@ -1,33 +1,42 @@
 /**
  * Email utility for sending invitation emails.
- * Uses nodemailer if available and configured via environment variables:
- *   SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM
+ * Uses nodemailer if available and configured via MAIL_* or SMTP_* variables.
  *
  * If nodemailer is not installed or SMTP is not configured, this is a no-op.
  */
 
-const logger = require('../config/logger');
+const logger = require('../utils/logger');
 
 let transporter = null;
 let mailConfigError = null;
 
+function resolveMailConfig(env = process.env) {
+  const port = parseInt(env.SMTP_PORT || env.MAIL_PORT || "587", 10);
+  return {
+    host: env.SMTP_HOST || env.MAIL_HOST || "",
+    port: Number.isFinite(port) ? port : 587,
+    user: env.SMTP_USER || env.MAIL_USER || "",
+    pass: env.SMTP_PASS || env.MAIL_PASS || "",
+    from: env.SMTP_FROM || env.MAIL_FROM || env.SMTP_USER || env.MAIL_USER || "noreply@example.com"
+  };
+}
+
 try {
   const nodemailer = require("nodemailer");
-
-  const host = process.env.SMTP_HOST;
-  const port = parseInt(process.env.SMTP_PORT || "587", 10);
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASS;
+  const { host, port, user, pass } = resolveMailConfig();
 
   if (host && user && pass) {
     transporter = nodemailer.createTransport({
       host,
       port,
       secure: port === 465,
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 15000,
       auth: { user, pass }
     });
   } else {
-    mailConfigError = 'SMTP configuration incomplete (missing SMTP_HOST, SMTP_USER, or SMTP_PASS)';
+    mailConfigError = 'Email configuration incomplete (set MAIL_HOST/SMTP_HOST, MAIL_USER/SMTP_USER, and MAIL_PASS/SMTP_PASS)';
   }
 } catch (err) {
   // nodemailer not installed or configuration failed
@@ -51,7 +60,7 @@ async function sendInviteEmail(toEmail, inviteLink, branch, role) {
     return { success: false, error: mailConfigError || 'Email service not configured' };
   }
 
-  const from = process.env.SMTP_FROM || process.env.SMTP_USER || "noreply@example.com";
+  const { from } = resolveMailConfig();
   const maxRetries = 2;
   let lastError = null;
 
@@ -110,4 +119,38 @@ async function sendInviteEmail(toEmail, inviteLink, branch, role) {
   };
 }
 
+async function sendOnboardingOtp(toEmail, code) {
+  if (!transporter) {
+    if (mailConfigError) {
+      logger.warn('[Mailer] Cannot send onboarding verification code', { reason: mailConfigError, toEmail });
+    }
+    return { success: false, error: mailConfigError || 'Email service not configured' };
+  }
+
+  const { from } = resolveMailConfig();
+  try {
+    await transporter.sendMail({
+      from,
+      to: toEmail,
+      subject: "Verify your PPO Regional FileSystem account",
+      text: `Your email verification code is ${code}. It expires in 10 minutes.`,
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;color:#1f2937">
+          <h2 style="color:#8a6a00">Verify your email address</h2>
+          <p>Enter this code to finish creating your PPO Regional FileSystem account:</p>
+          <p style="font-size:30px;font-weight:700;letter-spacing:8px;padding:16px;background:#f8fafc;border:1px solid #e5e7eb;display:inline-block">${code}</p>
+          <p>This code expires in 10 minutes. If you did not request an account, you can ignore this email.</p>
+        </div>
+      `
+    });
+    logger.info('[Mailer] Onboarding verification email sent', { toEmail });
+    return { success: true };
+  } catch (err) {
+    logger.error('[Mailer] Failed to send onboarding verification email', { toEmail, error: err.message });
+    return { success: false, error: 'Unable to send verification email' };
+  }
+}
+
 module.exports = sendInviteEmail;
+module.exports.sendOnboardingOtp = sendOnboardingOtp;
+module.exports.resolveMailConfig = resolveMailConfig;

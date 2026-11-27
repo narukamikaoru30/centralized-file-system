@@ -868,7 +868,27 @@ body.dark-mode .profile-form input { background: #1e293b; color: #e5e7eb; border
   transform: translateX(120%);
   animation: toastIn 0.35s ease forwards;
   max-width: 380px;
+  border-radius: 6px;
 }
+
+.toast-message { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.toast-close {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  box-shadow: none;
+}
+.toast-close:hover { background: rgba(148, 163, 184, 0.18); }
+.toast-close:focus-visible { outline: 2px solid #D4AF37; outline-offset: 2px; }
 
 .toast.toast-out {
   animation: toastOut 0.3s ease forwards;
