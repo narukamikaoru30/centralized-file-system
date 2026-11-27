@@ -2,6 +2,7 @@
 (function () {
   'use strict';
 
+  const toastLayer = document.body || document.documentElement;
   let container = document.getElementById('toastContainer');
   if (!container) {
     container = document.createElement('div');
@@ -9,7 +10,22 @@
     container.className = 'toast-container';
     container.setAttribute('aria-live', 'polite');
     container.setAttribute('aria-relevant', 'additions');
-    document.body.appendChild(container);
+  }
+  if (container.parentElement !== toastLayer) toastLayer.appendChild(container);
+
+  function moveDashboardOverlaysToBody() {
+    if (!document.querySelector('.dashboard-container')) return;
+
+    document.querySelectorAll('.modal, .profile-modal, .confirm-modal, .action-modal')
+      .forEach(function (overlay) {
+        document.body.appendChild(overlay);
+      });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', moveDashboardOverlaysToBody, { once: true });
+  } else {
+    moveDashboardOverlaysToBody();
   }
 
   const ICONS = {

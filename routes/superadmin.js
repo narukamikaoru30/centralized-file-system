@@ -17,7 +17,8 @@ const BRANCH_OPTIONS = require("../config/branches");
 const { requireAuth, requireActor } = require("../middleware/authMiddleware");
 const { requireActive, requireRole } = require("../middleware/roleMiddleware");
 const { getGlobalSystemSettings } = require("../utils/systemSettings");
-const { getObjectBuffer, deleteObject } = require("../utils/objectStorage");
+const { createPresignedGetUrl, deleteObject } = require("../utils/objectStorage");
+const { getRecentNotifications } = require("../utils/recentActivity");
 
 // Matches the Admin dashboard forecasting process, but includes every branch.
 async function buildSuperAdminForecast(months = 1) {
@@ -135,13 +136,11 @@ router.get("/dashboard",
   const allUsers = await User.find().select("_id fullname email role branch active status avatar createdAt").sort({ _id: -1 });
   const allAdmins = await User.find({ role: "admin" }).select("_id fullname email role branch active status avatar createdAt");
   const auditLogs = await Report.find().sort({ date: -1 }).limit(20);
-  const recentNotifications = await Notification.find({
-    $or: [
-      { owner: superAdmin._id },
-      { relatedUser: superAdmin._id },
-      { type: { $in: ['download', 'general'] } }
-    ]
-  }).sort({ date: -1 }).limit(12);
+  const recentNotifications = await getRecentNotifications({
+    role: "super_admin",
+    userId: superAdmin._id,
+    limit: 30
+  });
   const activeBranchAdmins = await User.find({ role: "admin", active: { $ne: false } }).select("email branch");
   const branchAdminLookup = new Map();
   activeBranchAdmins.forEach((admin) => {
@@ -206,15 +205,14 @@ router.get("/file/view/:fileId",
       return res.status(404).send("File not found");
     }
 
-    let fileBuffer;
-    try {
-      fileBuffer = await getObjectBuffer(file.filename);
-    } catch (storageErr) {
-      return res.status(404).send("File content is missing on server");
-    }
-
     const mimeType = file.mimeType || "application/octet-stream";
     const preferredName = file.originalName || file.filename;
+    const inlineType = /^image\/(png|jpeg|gif|webp)$/.test(mimeType) || mimeType === "application/pdf";
+    const disposition = `${inlineType ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(preferredName)}`;
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    if (inlineType) res.setHeader("Content-Security-Policy", "default-src 'none'; sandbox;");
+    const presignedUrl = await createPresignedGetUrl(file.filename, 60, disposition);
+    return res.redirect(302, presignedUrl);
     if (mimeType.startsWith("text/")) {
       const raw = fileBuffer.toString("utf8");
       const escaped = raw
@@ -255,7 +253,6 @@ router.get("/file/view/:fileId",
 
     res.setHeader("Content-Type", mimeType);
     res.setHeader("Content-Disposition", `inline; filename=\"${encodeURIComponent(preferredName)}\"`);
-    return res.send(fileBuffer);
   })
 );
 

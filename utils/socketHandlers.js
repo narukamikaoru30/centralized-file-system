@@ -3,6 +3,10 @@ const { verifyAccessToken, ACCESS_COOKIE_NAME } = require('./jwtAuth');
 const { parseCookies } = require('./sessionStore');
 const User = require('../models/User');
 const logger = require('./logger');
+const {
+  getRecentActivityRoomsForUser,
+  setRecentActivityIO
+} = require('./recentActivity');
 
 /**
  * Create socket.io server and attach handlers.
@@ -13,6 +17,7 @@ const logger = require('./logger');
 function initSocketIO(httpServer, app) {
   const io = new Server(httpServer);
   app.set('io', io);
+  setRecentActivityIO(io);
 
   io.on('connection', (socket) => {
     // Authenticate socket from cookies
@@ -26,7 +31,7 @@ function initSocketIO(httpServer, app) {
         authError = 'No access token found';
       } else {
         const payload = verifyAccessToken(accessToken);
-        if (payload && payload.sub) {
+        if (payload && payload.sub && payload.scope !== "2fa_pending") {
           socketUser = { id: payload.sub, email: payload.email };
         } else {
           authError = 'Invalid token payload';
@@ -54,13 +59,18 @@ function initSocketIO(httpServer, app) {
           logger.warn('[Socket.io] Identify mismatch', { expected: socketUser.email, received: email });
           return;
         }
+        const user = await User.findOne({ email });
+        if (!user || String(user._id) !== String(socketUser.id) || user.active === false) {
+          socket.disconnect(true);
+          return;
+        }
         socket.join(email);
         socket.userEmail = email;
-        const user = await User.findOne({ email });
-        if (user) {
-          user.online = true;
-          await user.save();
+        for (const room of getRecentActivityRoomsForUser(user)) {
+          socket.join(room);
         }
+        user.online = true;
+        await user.save();
         io.emit('presence', { email, online: true });
       } catch (e) {
         logger.error('[Socket.io] Identify error', { error: e.message });

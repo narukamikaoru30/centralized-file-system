@@ -4,7 +4,7 @@
   <%- include('partials/head', {
     title: 'Super Admin Dashboard | PPO Regional FileSystem',
     description: 'Super Admin Dashboard - PPO Regional FileSystem',
-    cssFiles: ['/css/dashboard.css', '/css/super-dashboard.css', '/css/system-refresh.css']
+    cssFiles: ['/css/dashboard.css', '/css/super-dashboard.css', '/css/system-refresh.css', '/css/recent-activity.css']
   }) %>
 </head>
 
@@ -122,31 +122,7 @@
         </div>
       </section>
 
-      <section class="activity-panel-section" id="activity">
-        <div class="activity-section-heading">
-          <h2><i class="ri-notification-3-line section-icon"></i> Recent Activity</h2>
-          <span class="activity-count"><%= (recentNotifications || []).length %> recent</span>
-        </div>
-        <div class="activity-panel" role="feed" aria-label="Recent system activity">
-          <% if ((recentNotifications || []).length) { %>
-            <% const activityIcons = { upload: 'upload-cloud-2-line', delete: 'delete-bin-6-line', download: 'download-2-line', share: 'share-line', system_alert: 'alert-line', admin_action: 'shield-user-line', security: 'lock-line', general: 'notification-3-line' }; %>
-            <% recentNotifications.forEach(function(note) { %>
-              <article class="activity-item">
-                <div class="activity-icon activity-icon-<%= note.type || 'general' %>" aria-hidden="true"><i class="ri-<%= activityIcons[note.type] || 'notification-3-line' %>"></i></div>
-                <div class="activity-body">
-                  <strong title="<%= note.message %>"><%= note.message %></strong>
-                  <div class="activity-details">
-                    <span class="activity-type"><%= String(note.type || 'general').replace(/_/g, ' ') %></span>
-                    <time class="activity-meta" datetime="<%= new Date(note.date).toISOString() %>"><%= new Date(note.date).toLocaleString() %></time>
-                  </div>
-                </div>
-              </article>
-            <% }) %>
-          <% } else { %>
-            <div class="activity-empty"><i class="ri-inbox-line" aria-hidden="true"></i><span>No recent activity.</span></div>
-          <% } %>
-        </div>
-      </section>
+      <%- include('partials/recent-activity', { recentNotifications: recentNotifications || [] }) %>
 
       <!-- Manage Admins -->
       <section class="manage-admins" id="admins">
@@ -232,12 +208,7 @@
               </div>
       </section>
 
-      <!-- Audit Logs -->
-      <section class="audit-logs" id="audit">
-        <h2><i class="ri-file-list-3-line section-icon"></i> Audit Logs</h2>
-        <ul id="auditList">
-        </ul>
-      </section>
+      <%- include('partials/audit-logs', { auditLogs: auditLogs || [] }) %>
 
     </main>
   </div>
@@ -665,23 +636,6 @@
         fileTable.appendChild(emptyRow);
       }
 
-      // Populate audit logs
-      const auditLogsData = <%- JSON.stringify(auditLogs || []) %>;
-      const auditList = document.getElementById('auditList');
-      auditList.innerHTML = '';
-      if (auditLogsData && auditLogsData.length > 0) {
-        auditLogsData.forEach((log) => {
-          const li = document.createElement('li');
-          const logDate = new Date(log.date).toLocaleString();
-          li.textContent = `${log.action} - ${log.filename} by ${log.user} (${logDate})`;
-          auditList.appendChild(li);
-        });
-      } else {
-        const li = document.createElement('li');
-        li.textContent = 'No audit logs recorded yet.';
-        auditList.appendChild(li);
-      }
-      
       // Set animation delay for table rows
       document.querySelectorAll('tbody tr').forEach((row, index) => {
         row.style.setProperty('--row-index', index);
@@ -1243,15 +1197,45 @@
     const MAX_AUDIT_ITEMS = 20;
 
     function addAudit(message) {
-      const li = document.createElement('li');
-      const now = new Date().toLocaleString();
-      li.textContent = `${message} (${now})`;
-      const auditList = document.getElementById('auditList');
-      if (!auditList) return;
-      auditList.insertBefore(li, auditList.firstChild);
-      while (auditList.children.length > MAX_AUDIT_ITEMS) {
-        auditList.removeChild(auditList.lastChild);
-      }
+      const feed = document.querySelector('[data-audit-log-feed]');
+      const count = document.querySelector('[data-audit-log-count]');
+      if (!feed) return;
+      const emptyState = feed.querySelector('.activity-empty');
+      if (emptyState) emptyState.remove();
+      const now = new Date();
+      const entry = document.createElement('article');
+      entry.className = 'activity-item';
+      const icon = document.createElement('div');
+      icon.className = 'activity-icon activity-icon-audit';
+      icon.setAttribute('aria-hidden', 'true');
+      icon.innerHTML = '<i class="ri-file-list-3-line"></i>';
+      const body = document.createElement('div');
+      body.className = 'activity-body';
+      const summary = document.createElement('strong');
+      summary.textContent = message;
+      summary.title = message;
+      const details = document.createElement('div');
+      details.className = 'activity-details';
+      [
+        ['activity-type', `Category: System`],
+        ['activity-meta', 'Branch: All branches'],
+        ['activity-meta', 'IP: N/A']
+      ].forEach(([className, text]) => {
+        const metadata = document.createElement('span');
+        metadata.className = className;
+        metadata.textContent = text;
+        details.appendChild(metadata);
+      });
+      const timestamp = document.createElement('time');
+      timestamp.className = 'activity-meta';
+      timestamp.dateTime = now.toISOString();
+      timestamp.textContent = `Timestamp: ${now.toLocaleString()}`;
+      details.appendChild(timestamp);
+      body.append(summary, details);
+      entry.append(icon, body);
+      feed.prepend(entry);
+      while (feed.children.length > MAX_AUDIT_ITEMS) feed.removeChild(feed.lastElementChild);
+      if (count) count.textContent = `${feed.querySelectorAll('.activity-item').length} LOGS`;
     }
   </script>
   <%- include('partials/scripts', { email: email || '', fullname: fullname || '', role: role || '' }) %>

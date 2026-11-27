@@ -90,7 +90,7 @@
       padding: 1rem;
       background: radial-gradient(circle at 20% 15%, rgba(212, 175, 55, 0.2), transparent 45%), rgba(15, 23, 42, 0.62);
       backdrop-filter: blur(7px);
-      z-index: 5500;
+      z-index: 1050;
       opacity: 0;
       transition: opacity 0.24s ease;
     }
@@ -101,6 +101,8 @@
     }
 
     .profile-card {
+      position: relative;
+      z-index: 1060;
       width: min(94vw, 800px);
       background: linear-gradient(165deg, rgba(255, 255, 255, 0.98), rgba(247, 250, 252, 0.97));
       border-radius: 24px;
@@ -332,15 +334,16 @@
     body.dark-mode input,
     body.dark-mode select,
     body.dark-mode textarea {
-      background: rgba(30, 41, 59, 0.95) !important;
-      color: #f8fafc !important;
+      background: var(--modal-control-background) !important;
+      color: var(--modal-control-color) !important;
+      border-color: var(--modal-control-border) !important;
     }
 
     body.dark-mode input:focus,
     body.dark-mode select:focus,
     body.dark-mode textarea:focus,
     body.dark-mode .styled-select:focus {
-      background: rgba(30, 41, 59, 0.98) !important;
+      background: var(--modal-control-background) !important;
       border-color: rgba(244, 211, 94, 0.82) !important;
       box-shadow: 0 0 0 3px rgba(244, 211, 94, 0.3) !important;
     }
@@ -745,9 +748,12 @@
     .share-section { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid rgba(0,0,0,0.1); }
     .share-section h4 { font-size: 0.9rem; margin-bottom: 0.5rem; font-weight: 700; color: #374151; }
     .share-section input, .share-section select {
-      padding: 0.5rem; border-radius: 8px; border: 1px solid rgba(0,0,0,0.15);
+      padding: 0.5rem; border-radius: 8px; border: 1px solid var(--modal-control-border);
       font-size: 0.85rem; width: 100%; margin-bottom: 0.5rem;
+      color: var(--modal-control-color);
+      background-color: var(--modal-control-background);
     }
+    .share-section select { background-color: var(--modal-select-background); }
     .share-section button {
       padding: 0.45rem 1rem; border-radius: 8px; border: none; font-weight: 700;
       font-size: 0.8rem; cursor: pointer; background: linear-gradient(135deg, #D4AF37, #b8941c);
@@ -761,8 +767,10 @@
     /* Tags in modal */
     .tags-section { margin-top: 1rem; }
     .tags-section input {
-      padding: 0.5rem; border-radius: 8px; border: 1px solid rgba(0,0,0,0.15);
+      padding: 0.5rem; border-radius: 8px; border: 1px solid var(--modal-control-border);
       font-size: 0.85rem; width: calc(100% - 80px); margin-right: 0.5rem;
+      color: var(--modal-control-color);
+      background-color: var(--modal-control-background);
     }
     .tags-section button {
       padding: 0.45rem 0.8rem; border-radius: 8px; border: none; font-weight: 700;
@@ -1238,13 +1246,13 @@
       inset: 0;
       background: rgba(0, 0, 0, 0.5);
       backdrop-filter: blur(5px);
-      z-index: 1000;
+      z-index: 1050;
+      isolation: isolate;
       justify-content: center;
       align-items: center;
       opacity: 0;
       pointer-events: none;
       transition: opacity 0.3s ease;
-      isolation: isolate;
     }
 
     .modal.show {
@@ -1254,6 +1262,8 @@
     }
 
     .modal-content {
+      position: relative;
+      z-index: 1060;
       background: rgba(255, 255, 255, 0.98);
       backdrop-filter: blur(20px);
       padding: 2.5rem;
@@ -1306,7 +1316,7 @@
       justify-content: center;
       background: radial-gradient(circle at 20% 15%, rgba(212, 175, 55, 0.2), transparent 45%), rgba(15, 23, 42, 0.62);
       backdrop-filter: blur(7px);
-      z-index: 99999;
+      z-index: 1080;
       padding: 1rem;
       opacity: 0;
       transition: opacity 0.2s ease;
@@ -1320,6 +1330,8 @@
     }
 
     .confirm-dialog {
+      position: relative;
+      z-index: 1090;
       width: min(94vw, 800px);
       background: linear-gradient(165deg, rgba(255, 255, 255, 0.98), rgba(247, 250, 252, 0.97));
       border-radius: 20px;
@@ -1585,6 +1597,7 @@
 
   </style>
   <link rel="stylesheet" href="/css/system-refresh.css" />
+  <link rel="stylesheet" href="/css/recent-activity.css" />
 </head>
 <body class="user-dashboard-page">
 
@@ -1641,6 +1654,7 @@
       </div>
     </section>
 
+    <%- include('partials/recent-activity', { recentNotifications: recentNotifications || [] }) %>
     
 <!-- Upload -->
 <section class="card upload-section">
@@ -1714,6 +1728,121 @@
       <div class="progress-fill" id="progressFill"></div>
     </div>
   </form>
+</section>
+
+<!-- File list -->
+<!-- Storage Usage Bar -->
+<div class="storage-bar-wrap" id="storageBarWrap" style="display:none;">
+  <div class="storage-bar"><div class="storage-bar-fill" id="storageBarFill" style="width:0%"></div></div>
+  <div class="storage-text" id="storageText"></div>
+</div>
+
+<!-- File Section Tabs -->
+<div class="file-tabs">
+  <button class="file-tab active" onclick="switchFileTab('files', this)">📁 My Files</button>
+  <button class="file-tab" onclick="switchFileTab('shared', this)">🤝 Shared with Me</button>
+  <button class="file-tab" onclick="switchFileTab('recycle', this)">🗑️ Recycle Bin</button>
+</div>
+
+<!-- Enhanced Search Bar -->
+<div class="search-bar-wrap">
+  <input type="text" id="searchInput" placeholder="Search by name or tag..." />
+  <input type="date" id="searchFrom" title="From date" />
+  <input type="date" id="searchTo" title="To date" />
+  <button class="search-btn" onclick="serverSearch()">🔍 Search</button>
+</div>
+
+<!-- Filters -->
+<section class="filters">
+  <h2>Filter Files</h2>
+  <button class="filter-btn active" onclick="filterFiles('all', this)">All</button>
+  <button class="filter-btn" onclick="filterFiles('pdf', this)">PDF</button>
+  <button class="filter-btn" onclick="filterFiles('docx', this)">DOCX</button>
+  <button class="filter-btn" onclick="filterFiles('excel', this)">Excel</button>
+  <button class="filter-btn" onclick="filterFiles('image', this)">Images</button>
+</section>
+
+<!-- Bulk Operations Toolbar -->
+<div class="bulk-toolbar" id="bulkToolbar">
+  <span id="bulkCount">0 selected</span>
+  <button class="bulk-btn-download" onclick="bulkDownload()">⬇️ Download ZIP</button>
+  <button class="bulk-btn-delete" onclick="bulkDelete()">🗑️ Delete Selected</button>
+  <button onclick="clearBulkSelection()" style="background:#6b7280;color:#fff;">✖ Clear</button>
+</div>
+
+<!-- My Files -->
+<section class="file-list" id="myFilesSection">
+  <h2>Uploaded Files</h2>
+  <div id="filesContainer" class="files-grid">
+    <% if (typeof files !== "undefined" && files.length > 0) { %>
+      <% files.forEach(f => { %>
+        <% const ext = (f.filename || '').toLowerCase().split('.').pop(); %>
+        <% const extCategory = ['jpg','jpeg','png','gif','bmp','webp','svg'].includes(ext) ? 'image' : (ext === 'pdf' ? 'pdf' : ((ext === 'docx' || ext === 'doc') ? 'docx' : (['xls','xlsx','csv'].includes(ext) ? 'excel' : 'other'))); %>
+        <div class="file-card" data-category="<%= extCategory %>" data-file-id="<%= f._id %>" data-owner-id="<%= f.owner %>"
+             data-filename="<%= f.filename %>" data-filetype="<%= f.filetype %>"
+             onclick="if(!event.target.classList.contains('file-card-check')) openPreview(this.dataset.filename, this.dataset.filetype, this.dataset.fileId)">
+          <input type="checkbox" class="file-card-check" data-id="<%= f._id %>" onclick="event.stopPropagation(); updateBulkToolbar()" />
+          <% if (f.version > 1) { %><span class="version-badge">v<%= f.version %></span><% } %>
+          <% if (f.sharedWith && f.sharedWith.length) { %><span class="shared-badge" title="Shared">🔗</span><% } %>
+          <% if (extCategory === "image") { %>
+            <img src="/auth/file/content/<%= f._id %>" alt="<%= f.filename %>" style="max-width:100px; border-radius:6px;" />
+          <% } else { %>
+            <span style="font-size:2rem;">📄</span>
+          <% } %>
+          <p title="<%= f.originalName || f.filename %>"><%= f.originalName || f.filename %></p>
+          <span class="file-category"><%= extCategory === 'pdf' ? 'PDF' : (extCategory === 'docx' ? 'DOCX' : (extCategory === 'excel' ? 'EXCEL' : (extCategory === 'image' ? 'IMAGE' : 'OTHER'))) %></span>
+          <% if (f.tags && f.tags.length) { %>
+            <div class="file-tags"><% f.tags.forEach(t => { %><span class="file-tag"><%= t %></span><% }) %></div>
+          <% } %>
+        </div>
+      <% }) %>
+    <% } else { %>
+      <div class="empty-state">
+        <i class="ri-folder-open-line"></i>
+        <p>No files uploaded yet</p>
+        <span style="font-size:0.88rem;color:#999;">Drag & drop files above or click Upload to get started</span>
+      </div>
+    <% } %>
+  </div>
+</section>
+
+<section class="file-list" id="sharedFilesSection" style="display:none;">
+  <h2>🏢 Files from My Office</h2>
+  <div class="files-grid" id="sharedFilesContainer">
+    <% if (typeof sharedFiles !== "undefined" && sharedFiles.length > 0) { %>
+      <% sharedFiles.forEach(f => { %>
+        <% const ext2 = (f.filename || '').toLowerCase().split('.').pop(); %>
+        <% const extCat2 = ['jpg','jpeg','png','gif','bmp','webp','svg'].includes(ext2) ? 'image' : (ext2 === 'pdf' ? 'pdf' : ((ext2 === 'docx' || ext2 === 'doc') ? 'docx' : (['xls','xlsx','csv'].includes(ext2) ? 'excel' : 'other'))); %>
+        <div class="file-card" data-file-id="<%= f._id %>" data-owner-id="<%= f.owner ? f.owner._id : '' %>"
+             data-filename="<%= f.filename %>" data-filetype="<%= f.filetype %>"
+             onclick="openPreview(this.dataset.filename, this.dataset.filetype, this.dataset.fileId)">
+          <% if (f.version > 1) { %><span class="version-badge">v<%= f.version %></span><% } %>
+          <% if (extCat2 === "image") { %>
+            <img src="/auth/file/content/<%= f._id %>" alt="<%= f.filename %>" style="max-width:100px; border-radius:6px;" />
+          <% } else { %>
+            <span style="font-size:2rem;">📄</span>
+          <% } %>
+          <p><%= f.originalName || f.filename %></p>
+          <span class="file-category"><%= extCat2.toUpperCase() %></span>
+          <% if (f.owner) { %><div style="font-size:0.7rem;color:#6b7280;margin-top:4px;">from <%= f.owner.fullname %></div><% } %>
+        </div>
+      <% }) %>
+    <% } else { %>
+      <div class="empty-state">
+        <i class="ri-share-line"></i>
+        <p>No office files available</p>
+        <span style="font-size:0.88rem;color:#999;">Files from your office will appear here</span>
+      </div>
+    <% } %>
+  </div>
+</section>
+
+<!-- Recycle Bin Section -->
+<section class="file-list" id="recycleBinSection" style="display:none;">
+  <h2>🗑️ Recycle Bin</h2>
+  <div class="files-grid" id="recycleBinContainer">
+    <p>Loading...</p>
+  </div>
 </section>
 
 <!-- Profile Modal -->
@@ -2526,122 +2655,6 @@ document.getElementById("uploadForm").addEventListener("submit", async function(
 });
 </script>
 
-
-
-      <!-- Storage Usage Bar -->
-      <div class="storage-bar-wrap" id="storageBarWrap" style="display:none;">
-        <div class="storage-bar"><div class="storage-bar-fill" id="storageBarFill" style="width:0%"></div></div>
-        <div class="storage-text" id="storageText"></div>
-      </div>
-
-      <!-- File Section Tabs -->
-      <div class="file-tabs">
-        <button class="file-tab active" onclick="switchFileTab('files', this)">📁 My Files</button>
-        <button class="file-tab" onclick="switchFileTab('shared', this)">🤝 Shared with Me</button>
-        <button class="file-tab" onclick="switchFileTab('recycle', this)">🗑️ Recycle Bin</button>
-      </div>
-
-      <!-- Enhanced Search Bar -->
-      <div class="search-bar-wrap">
-        <input type="text" id="searchInput" placeholder="Search by name or tag..." />
-        <input type="date" id="searchFrom" title="From date" />
-        <input type="date" id="searchTo" title="To date" />
-        <button class="search-btn" onclick="serverSearch()">🔍 Search</button>
-      </div>
-
-      <!-- Filters -->
-      <section class="filters">
-        <h2>Filter Files</h2>
-        <button class="filter-btn active" onclick="filterFiles('all', this)">All</button>
-        <button class="filter-btn" onclick="filterFiles('pdf', this)">PDF</button>
-        <button class="filter-btn" onclick="filterFiles('docx', this)">DOCX</button>
-        <button class="filter-btn" onclick="filterFiles('excel', this)">Excel</button>
-        <button class="filter-btn" onclick="filterFiles('image', this)">Images</button>
-      </section>
-
-      <!-- Bulk Operations Toolbar -->
-      <div class="bulk-toolbar" id="bulkToolbar">
-        <span id="bulkCount">0 selected</span>
-        <button class="bulk-btn-download" onclick="bulkDownload()">⬇️ Download ZIP</button>
-        <button class="bulk-btn-delete" onclick="bulkDelete()">🗑️ Delete Selected</button>
-        <button onclick="clearBulkSelection()" style="background:#6b7280;color:#fff;">✖ Clear</button>
-      </div>
-
-      <!-- My Files -->
-      <section class="file-list" id="myFilesSection">
-        <h2>Uploaded Files</h2>
-        <div id="filesContainer" class="files-grid">
-          <% if (typeof files !== "undefined" && files.length > 0) { %>
-            <% files.forEach(f => { %>
-              <% const ext = (f.filename || '').toLowerCase().split('.').pop(); %>
-              <% const extCategory = ['jpg','jpeg','png','gif','bmp','webp','svg'].includes(ext) ? 'image' : (ext === 'pdf' ? 'pdf' : ((ext === 'docx' || ext === 'doc') ? 'docx' : (['xls','xlsx','csv'].includes(ext) ? 'excel' : 'other'))); %>
-              <div class="file-card" data-category="<%= extCategory %>" data-file-id="<%= f._id %>" data-owner-id="<%= f.owner %>"
-                   data-filename="<%= f.filename %>" data-filetype="<%= f.filetype %>"
-                   onclick="if(!event.target.classList.contains('file-card-check')) openPreview(this.dataset.filename, this.dataset.filetype, this.dataset.fileId)">
-                <input type="checkbox" class="file-card-check" data-id="<%= f._id %>" onclick="event.stopPropagation(); updateBulkToolbar()" />
-                <% if (f.version > 1) { %><span class="version-badge">v<%= f.version %></span><% } %>
-                <% if (f.sharedWith && f.sharedWith.length) { %><span class="shared-badge" title="Shared">🔗</span><% } %>
-                <% if (extCategory === "image") { %>
-                  <img src="/auth/file/content/<%= f._id %>" alt="<%= f.filename %>" style="max-width:100px; border-radius:6px;" />
-                <% } else { %>
-                  <span style="font-size:2rem;">📄</span>
-                <% } %>
-                <p title="<%= f.originalName || f.filename %>"><%= f.originalName || f.filename %></p>
-                <span class="file-category"><%= extCategory === 'pdf' ? 'PDF' : (extCategory === 'docx' ? 'DOCX' : (extCategory === 'excel' ? 'EXCEL' : (extCategory === 'image' ? 'IMAGE' : 'OTHER'))) %></span>
-                <% if (f.tags && f.tags.length) { %>
-                  <div class="file-tags"><% f.tags.forEach(t => { %><span class="file-tag"><%= t %></span><% }) %></div>
-                <% } %>
-              </div>
-            <% }) %>
-          <% } else { %>
-            <div class="empty-state">
-              <i class="ri-folder-open-line"></i>
-              <p>No files uploaded yet</p>
-              <span style="font-size:0.88rem;color:#999;">Drag & drop files above or click Upload to get started</span>
-            </div>
-          <% } %>
-        </div>
-      </section>
-
-      <section class="file-list" id="sharedFilesSection" style="display:none;">
-        <h2>🏢 Files from My Office</h2>
-        <div class="files-grid" id="sharedFilesContainer">
-          <% if (typeof sharedFiles !== "undefined" && sharedFiles.length > 0) { %>
-            <% sharedFiles.forEach(f => { %>
-              <% const ext2 = (f.filename || '').toLowerCase().split('.').pop(); %>
-              <% const extCat2 = ['jpg','jpeg','png','gif','bmp','webp','svg'].includes(ext2) ? 'image' : (ext2 === 'pdf' ? 'pdf' : ((ext2 === 'docx' || ext2 === 'doc') ? 'docx' : (['xls','xlsx','csv'].includes(ext2) ? 'excel' : 'other'))); %>
-              <div class="file-card" data-file-id="<%= f._id %>" data-owner-id="<%= f.owner ? f.owner._id : '' %>"
-                   data-filename="<%= f.filename %>" data-filetype="<%= f.filetype %>"
-                   onclick="openPreview(this.dataset.filename, this.dataset.filetype, this.dataset.fileId)">
-                <% if (f.version > 1) { %><span class="version-badge">v<%= f.version %></span><% } %>
-                <% if (extCat2 === "image") { %>
-                  <img src="/auth/file/content/<%= f._id %>" alt="<%= f.filename %>" style="max-width:100px; border-radius:6px;" />
-                <% } else { %>
-                  <span style="font-size:2rem;">📄</span>
-                <% } %>
-                <p><%= f.originalName || f.filename %></p>
-                <span class="file-category"><%= extCat2.toUpperCase() %></span>
-                <% if (f.owner) { %><div style="font-size:0.7rem;color:#6b7280;margin-top:4px;">from <%= f.owner.fullname %></div><% } %>
-              </div>
-            <% }) %>
-          <% } else { %>
-            <div class="empty-state">
-              <i class="ri-share-line"></i>
-              <p>No office files available</p>
-              <span style="font-size:0.88rem;color:#999;">Files from your office will appear here</span>
-            </div>
-          <% } %>
-        </div>
-      </section>
-
-      <!-- Recycle Bin Section -->
-      <section class="file-list" id="recycleBinSection" style="display:none;">
-        <h2>🗑️ Recycle Bin</h2>
-        <div class="files-grid" id="recycleBinContainer">
-          <p>Loading...</p>
-        </div>
-      </section>
-
     </main>
   </div>
 
@@ -3307,6 +3320,7 @@ document.getElementById("uploadForm").addEventListener("submit", async function(
   </script>
 
   <div id="messenger-root" data-email="<%= email %>" data-fullname="<%= fullname || '' %>" data-role="<%= role || '' %>"></div>
+  <script src="/js/recent-activity.js"></script>
   <script src="/js/messenger.js"></script>
 
   <!-- Session Timeout Timer (uses initUserAutoLogout from dashboard script; SessionTimer disabled to avoid double-init) -->

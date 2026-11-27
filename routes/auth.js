@@ -341,7 +341,10 @@ router.post("/login", loginLimiter, async (req, res) => {
         session.pendingTotpAt = Date.now();
         session.twoFAAttempts = 0;
         session.is2FAComplete = false;
+        updateSession(sid, session);
       }
+      const pendingSigned = signAccessToken(user, { scope: "2fa_pending", expiresIn: 5 * 60 });
+      setAccessCookie(res, pendingSigned.token);
       resetTwoFAAttempts(req, user._id);
       return res.redirect("/auth/2fa/verify");
     }
@@ -781,6 +784,11 @@ router.post("/refresh", async (req, res) => {
       return res.status(401).json({ success: false, message: "User is not active" });
     }
 
+    if (req.authPayload?.scope === "2fa_pending") {
+      clearAccessCookie(res);
+      clearRefreshCookie(res);
+      return res.status(401).json({ success: false, message: "Complete two-factor authentication" });
+    }
     const signed = signAccessToken(refreshedUser);
     setAccessCookie(res, signed.token);
     return res.json({ success: true });

@@ -25,7 +25,9 @@ const {
   getObjectMetadata,
   createTempFile,
   objectExists,
-  deleteObject
+  deleteObject,
+  createPresignedGetUrl,
+  createPresignedPutUrl
 } = require("../utils/objectStorage");
 const logger = require("../utils/logger");
 
@@ -83,10 +85,10 @@ function hasActiveFileShare(file, userId) {
 // belonging to their assigned office. Admins retain their existing full access.
 function canAccessFile(user, file) {
   if (!user || !file || file.deleted) return false;
-  if (["admin", "super_admin"].includes(user.role)) return true;
-  if (String(file.owner) === String(user._id)) return true;
-  if (user.branch && file.branch && user.branch === file.branch) return true;
-  return hasActiveFileShare(file, user._id);
+  if (user.role === "super_admin") return true;
+  if (user.role === "admin") return Boolean(user.branch && file.branch && String(user.branch) === String(file.branch));
+  if (!user.branch || !file.branch || String(user.branch) !== String(file.branch)) return false;
+  return String(file.owner) === String(user._id) || hasActiveFileShare(file, user._id);
 }
 
 function uploadErrorResponse(req, res, message, statusCode = 400) {
@@ -177,6 +179,26 @@ const upload = multer({
     files: 10,
     fields: 5,
     parts: 20
+  }
+});
+
+router.post("/file/presign-upload", requireAuth({ mode: "json" }), async (req, res) => {
+  try {
+    const originalName = String(req.body.originalName || "").trim();
+    const contentType = String(req.body.contentType || "").trim();
+    if (!originalName || !contentType) {
+      return res.status(400).json({ success: false, message: "originalName and contentType are required" });
+    }
+    if (![...ALLOWED_MIME_BY_TYPE.document, ...ALLOWED_MIME_BY_TYPE.image, ...ALLOWED_MIME_BY_TYPE.report]
+      .includes(contentType)) {
+      return res.status(400).json({ success: false, message: "Unsupported file type" });
+    }
+    const filename = createStorageFilename(originalName);
+    const url = await createPresignedPutUrl(filename, contentType, 60);
+    return res.json({ success: true, filename, url, expiresIn: 60 });
+  } catch (error) {
+    logger.error("[Presign Upload] Error", { error: error.message, stack: error.stack });
+    return res.status(500).json({ success: false, message: "Unable to create upload authorization" });
   }
 });
 
@@ -523,7 +545,11 @@ router.get("/file/content/:fileId", requireAuth({ mode: "json" }), async (req, r
           // or share subdocuments depending on when the file was shared.
           const admins = await User.find({
             role: { $in: ["admin", "super_admin"] },
-            active: { $ne: false }
+            active: { $ne: false },
+            $or: [
+              { role: "super_admin" },
+              { role: "admin", branch: file.branch || "" }
+            ]
           }).select("_id");
 
           admins.forEach((admin) => recipientIds.add(String(admin._id)));
@@ -555,10 +581,15 @@ router.get("/file/content/:fileId", requireAuth({ mode: "json" }), async (req, r
       }
     }
 
-    res.setHeader("Content-Type", file.mimeType || "application/octet-stream");
-    res.setHeader("Content-Disposition", `${download ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(displayName)}`);
-    const objectStream = await getObjectStream(safeFilename);
-    return objectStream.pipe(res);
+    const inlineType = /^image\/(png|jpeg|gif|webp)$/.test(file.mimeType) || file.mimeType === "application/pdf";
+    const dispositionMode = download || !inlineType ? "attachment" : "inline";
+    const disposition = `${dispositionMode}; filename*=UTF-8''${encodeURIComponent(displayName)}`;
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    if (dispositionMode === "inline") {
+      res.setHeader("Content-Security-Policy", "default-src 'none'; sandbox;");
+    }
+    const url = await createPresignedGetUrl(safeFilename, 60, disposition);
+    return res.redirect(302, url);
   } catch (err) {
     logger.error("[File Content] Error", { error: err.message, stack: err.stack });
     return res.status(500).json({ success: false, message: "Unable to open file" });
@@ -659,7 +690,11 @@ router.post("/file/share/:fileId", requireAuth({ mode: "json" }), async (req, re
       return res.status(400).json({ success: false, message: "No valid email addresses provided" });
     }
 
-    const recipients = await User.find({ email: { $in: validEmails }, active: { $ne: false } }).select("_id email");
+    const recipients = await User.find({
+      email: { $in: validEmails },
+      active: { $ne: false },
+      branch: file.branch
+    }).select("_id email");
     const recipientIds = recipients.map(r => r._id.toString());
 
     const existing = file.sharedWith.map(id => id.toString());

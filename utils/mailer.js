@@ -119,38 +119,5 @@ async function sendInviteEmail(toEmail, inviteLink, branch, role) {
   };
 }
 
-async function sendOnboardingOtp(toEmail, code) {
-  if (!transporter) {
-    if (mailConfigError) {
-      logger.warn('[Mailer] Cannot send onboarding verification code', { reason: mailConfigError, toEmail });
-    }
-    return { success: false, error: mailConfigError || 'Email service not configured' };
-  }
-
-  const { from } = resolveMailConfig();
-  try {
-    await transporter.sendMail({
-      from,
-      to: toEmail,
-      subject: "Verify your PPO Regional FileSystem account",
-      text: `Your email verification code is ${code}. It expires in 10 minutes.`,
-      html: `
-        <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;color:#1f2937">
-          <h2 style="color:#8a6a00">Verify your email address</h2>
-          <p>Enter this code to finish creating your PPO Regional FileSystem account:</p>
-          <p style="font-size:30px;font-weight:700;letter-spacing:8px;padding:16px;background:#f8fafc;border:1px solid #e5e7eb;display:inline-block">${code}</p>
-          <p>This code expires in 10 minutes. If you did not request an account, you can ignore this email.</p>
-        </div>
-      `
-    });
-    logger.info('[Mailer] Onboarding verification email sent', { toEmail });
-    return { success: true };
-  } catch (err) {
-    logger.error('[Mailer] Failed to send onboarding verification email', { toEmail, error: err.message });
-    return { success: false, error: 'Unable to send verification email' };
-  }
-}
-
 module.exports = sendInviteEmail;
-module.exports.sendOnboardingOtp = sendOnboardingOtp;
 module.exports.resolveMailConfig = resolveMailConfig;

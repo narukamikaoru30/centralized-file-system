@@ -18,14 +18,14 @@ module.exports = {
     },
     networks: {
         'polygon-mainnet': {
-            url: process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com',
+            url: process.env.BLOCKCHAIN_RPC_URL || process.env.POLYGON_RPC_URL,
             accounts: process.env.WALLET_PRIVATE_KEY ? [process.env.WALLET_PRIVATE_KEY] : [],
             chainId: 137
         },
-        'polygon-mumbai': {
-            url: process.env.POLYGON_MUMBAI_RPC_URL || 'https://rpc-mumbai.maticvigil.com',
+        'polygon-amoy': {
+            url: process.env.BLOCKCHAIN_RPC_URL || process.env.POLYGON_AMOY_RPC_URL,
             accounts: process.env.WALLET_PRIVATE_KEY ? [process.env.WALLET_PRIVATE_KEY] : [],
-            chainId: 80001
+            chainId: 80002
         }
     },
     paths: {

@@ -1,0 +1,53 @@
+<%
+  const recentActivityItems = (recentNotifications || []).slice(0, 30);
+  const recentActivityIcons = {
+    upload: "upload-cloud-2-line",
+    delete: "delete-bin-6-line",
+    download: "download-2-line",
+    share: "share-line",
+    system_alert: "alert-line",
+    admin_action: "shield-user-line",
+    security: "lock-line",
+    restore: "restart-line",
+    version: "file-history-line",
+    tag: "price-tag-3-line",
+    invite: "mail-send-line",
+    branch_update: "building-line",
+    general: "notification-3-line"
+  };
+%>
+<section class="activity-panel-section" id="recentActivitySection" aria-labelledby="recentActivityTitle">
+  <div class="activity-section-heading">
+    <h2 id="recentActivityTitle"><i class="ri-notification-3-line section-icon" aria-hidden="true"></i> Recent Activity</h2>
+    <span class="activity-count" data-recent-activity-count aria-live="polite"><%= recentActivityItems.length %> RECENT</span>
+  </div>
+  <div class="activity-panel" data-recent-activity-feed role="feed" aria-label="Recent activity" aria-live="polite">
+    <% if (recentActivityItems.length) { %>
+      <% recentActivityItems.forEach(function(note) {
+        const type = recentActivityIcons[note.type] ? note.type : "general";
+        const date = note.date ? new Date(note.date) : new Date();
+        if (Number.isNaN(date.getTime())) date.setTime(Date.now());
+        const duplicateKey = JSON.stringify([
+          type,
+          String(note.message || "").trim().toLowerCase(),
+          String(note.relatedUser || ""),
+          String(note.relatedFile || ""),
+          Math.floor(date.getTime() / 1000)
+        ]);
+      %>
+        <article class="activity-item" data-activity-id="<%= note._id || '' %>" data-activity-key="<%= duplicateKey %>">
+          <div class="activity-icon activity-icon-<%= type %>" aria-hidden="true"><i class="ri-<%= recentActivityIcons[type] %>"></i></div>
+          <div class="activity-body">
+            <strong title="<%= note.message || 'New activity' %>"><%= note.message || "New activity" %></strong>
+            <div class="activity-details">
+              <span class="activity-type"><%= String(type).replace(/_/g, " ") %></span>
+              <time class="activity-meta" datetime="<%= date.toISOString() %>"><%= date.toLocaleString() %></time>
+            </div>
+          </div>
+        </article>
+      <% }) %>
+    <% } else { %>
+      <div class="activity-empty"><i class="ri-inbox-line" aria-hidden="true"></i><span>No recent activity.</span></div>
+    <% } %>
+  </div>
+</section>

@@ -97,21 +97,24 @@ function decodeAccessTokenUnsafe(token) {
   return decoded;
 }
 
-function signAccessToken(user) {
+function signAccessToken(user, options = {}) {
   const { privateKey } = ensureKeyset();
   const jwtId = crypto.randomUUID();
+  const scope = options.scope || "full";
+  const expiresIn = options.expiresIn || ACCESS_TTL_SECONDS;
 
   const token = jwt.sign(
     {
       sub: String(user._id),
       role: user.role,
-      email: user.email
+      email: user.email,
+      scope
     },
     privateKey,
     {
       algorithm: JWT_ALGORITHM,
       keyid: ACTIVE_KID,
-      expiresIn: ACCESS_TTL_SECONDS,
+      expiresIn,
       issuer: JWT_ISSUER,
       audience: JWT_AUDIENCE,
       jwtid: jwtId

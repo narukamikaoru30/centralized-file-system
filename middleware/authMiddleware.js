@@ -24,6 +24,7 @@ function respondUnauthorized(req, res, options = {}) {
 }
 
 function hasCompletedTwoFA(req, actor) {
+  if (req.authPayload?.scope === "2fa_pending") return false;
   return !actor?.totpEnabled || req.session?.is2FAComplete === true;
 }
 

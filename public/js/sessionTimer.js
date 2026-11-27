@@ -63,7 +63,7 @@
         position: fixed;
         top: 20px;
         right: 20px;
-        z-index: 9999;
+        z-index: 1080;
         font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
       }
 
@@ -157,6 +157,8 @@
       }
 
       .session-warning {
+        position: relative;
+        z-index: 1090;
         margin-top: 12px;
         background: linear-gradient(135deg, #fef3c7, #fde68a);
         border: 1px solid #f59e0b;
@@ -484,7 +486,7 @@
       font-size: 15px;
       font-weight: 600;
       box-shadow: 0 4px 20px rgba(0,0,0,0.2);
-      z-index: 10000;
+      z-index: 99999;
       animation: slideIn 0.3s ease-out;
     `;
     toast.textContent = message;
