@@ -1716,13 +1716,6 @@
   </form>
 </section>
 
-<!-- Feedback Modal -->
-<div id="feedbackModal" class="modal">
-  <div class="modal-content" id="feedbackBox">
-    <span id="feedbackMessage"></span>
-  </div>
-</div>
-
 <!-- Profile Modal -->
 <div id="profileModal" class="profile-modal" onclick="if(event.target===this) closeProfileModal()">
   <div class="profile-card">
@@ -2385,9 +2378,6 @@ document.getElementById("uploadForm").addEventListener("submit", async function(
   const uploadBtn = uploadForm.querySelector('button[type="submit"]');
   const progressBar = document.getElementById("progressBar");
   const progressFill = document.getElementById("progressFill");
-  const modal = document.getElementById("feedbackModal");
-  const feedbackBox = document.getElementById("feedbackBox");
-  const feedbackMessage = document.getElementById("feedbackMessage");
   let selectedType = fileTypeSelect?.value || '';
   const files = Array.from(fileInput.files);
   
@@ -2403,18 +2393,12 @@ document.getElementById("uploadForm").addEventListener("submit", async function(
   if (!selectedType) selectedType = 'document';
 
   if (!files.length) {
-    feedbackMessage.textContent = "❌ Please select at least one file";
-    feedbackBox.className = "modal-content error";
-    modal.classList.add("show");
-    setTimeout(() => { modal.classList.remove("show"); }, 3000);
+    showFeedbackToast("Please select at least one file", "error");
     return;
   }
 
   if (files.length > 10) {
-    feedbackMessage.textContent = "❌ Maximum 10 files per upload";
-    feedbackBox.className = "modal-content error";
-    modal.classList.add("show");
-    setTimeout(() => { modal.classList.remove("show"); }, 3000);
+    showFeedbackToast("Maximum 10 files per upload", "error");
     return;
   }
 
@@ -2422,10 +2406,7 @@ document.getElementById("uploadForm").addEventListener("submit", async function(
   const invalidFiles = [];
   for (const file of files) {
     if (file.size > MAX_UPLOAD_SIZE) {
-      feedbackMessage.textContent = `❌ "${file.name}" exceeds 15MB limit`;
-      feedbackBox.className = "modal-content error";
-      modal.classList.add("show");
-      setTimeout(() => { modal.classList.remove("show"); }, 3000);
+      showFeedbackToast(`"${file.name}" exceeds the upload size limit`, "error");
       return;
     }
     // For batch uploads: collect invalid files but allow submission
@@ -2440,10 +2421,7 @@ document.getElementById("uploadForm").addEventListener("submit", async function(
     // Continue with upload - server will handle
   } else if (invalidFiles.length === files.length) {
     // ALL files are invalid - reject
-    feedbackMessage.textContent = `❌ No files match category "${selectedType}"`;
-    feedbackBox.className = "modal-content error";
-    modal.classList.add("show");
-    setTimeout(() => { modal.classList.remove("show"); }, 3000);
+    showFeedbackToast(`No files match category "${selectedType}"`, "error");
     return;
   }
 
@@ -2480,10 +2458,7 @@ document.getElementById("uploadForm").addEventListener("submit", async function(
   } catch (err) {
     progressBar.style.display = "none";
     progressFill.style.width = "0%";
-    feedbackMessage.textContent = `❌ Failed to get CSRF token: ${err.message}`;
-    feedbackBox.className = "modal-content error";
-    modal.classList.add("show");
-    setTimeout(() => { modal.classList.remove("show"); }, 3000);
+    showFeedbackToast(`Failed to get security token: ${err.message}`, "error");
     if (uploadBtn) uploadBtn.disabled = false;
     return;
   }
@@ -2517,12 +2492,9 @@ document.getElementById("uploadForm").addEventListener("submit", async function(
     if (request.status >= 200 && request.status < 300 && payload && payload.success) {
       progressFill.style.width = "100%";
       const uploadedCount = payload.uploadedCount || files.length;
-      feedbackMessage.textContent = `✅ ${payload.message || (uploadedCount > 1 ? uploadedCount + ' files uploaded successfully!' : 'File uploaded successfully!')}`;
-      feedbackBox.className = "modal-content success";
-      modal.classList.add("show");
+      showFeedbackToast(payload.message || (uploadedCount > 1 ? uploadedCount + ' files uploaded successfully!' : 'File uploaded successfully!'), 'success');
 
       setTimeout(() => {
-        modal.classList.remove("show");
         progressBar.style.display = "none";
         progressFill.style.width = "0%";
         fileNames.innerHTML = "";
@@ -2536,17 +2508,13 @@ document.getElementById("uploadForm").addEventListener("submit", async function(
 
     progressBar.style.display = "none";
     progressFill.style.width = "0%";
-    // Suppress error feedback - user can see file status after reload
-    // No error banner shown on failure
+    showFeedbackToast((payload && payload.message) || 'Upload failed. Please try again.', 'error');
   };
 
   request.onerror = function() {
     progressBar.style.display = "none";
     progressFill.style.width = "0%";
-    feedbackMessage.textContent = "❌ Network error: Upload failed. Please check your connection and try again.";
-    feedbackBox.className = "modal-content error";
-    modal.classList.add("show");
-    setTimeout(() => { modal.classList.remove("show"); }, 5000);
+    showFeedbackToast("Network error: upload failed. Check your connection and try again.", "error");
     if (uploadBtn) uploadBtn.disabled = false;
   };
 
@@ -3010,15 +2978,11 @@ document.getElementById("uploadForm").addEventListener("submit", async function(
   }
 
   function showFeedbackToast(message, type) {
-    const modal = document.getElementById('feedbackModal');
-    const feedbackBox = document.getElementById('feedbackBox');
-    const feedbackMessage = document.getElementById('feedbackMessage');
-    if (!modal || !feedbackBox || !feedbackMessage) return;
-
-    feedbackMessage.textContent = message;
-    feedbackBox.className = type === 'error' ? 'modal-content error' : 'modal-content success';
-    modal.classList.add('show');
-    setTimeout(() => modal.classList.remove('show'), 2200);
+    if (typeof window.showToast === 'function') {
+      window.showToast(message, type === 'error' ? 'error' : (type || 'success'));
+      return;
+    }
+    window.dispatchEvent(new CustomEvent('app:toast', { detail: { message, type } }));
   }
 
   document.getElementById('searchInput')?.addEventListener('input', applyFileFilters);

@@ -4,6 +4,7 @@ const crypto = require("crypto");
 const User = require("../models/User");
 const AuditLog = require("../models/AuditLog");
 const Branch = require("../models/Branch");
+const Invitation = require("../models/Invitation");
 const bcrypt = require("bcrypt");
 const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
 const OTPAuth = require("otpauth");
@@ -207,8 +208,12 @@ router.get("/register", async (req, res) => {
 router.post("/register", registerLimiter, async (req, res) => {
   const { fullname, password, branch } = req.body;
   const email = (req.body.email || "").trim().toLowerCase();
-  const role = "user";
   try {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      pushFlash(req, res, "error", "Enter a valid email address.");
+      return res.redirect("/auth/register");
+    }
+
     const passwordError = User.validatePasswordComplexity(password);
     if (passwordError) {
       pushFlash(req, res, "error", passwordError);
@@ -232,11 +237,17 @@ router.post("/register", registerLimiter, async (req, res) => {
       return res.redirect("/auth/register");
     }
     const hashedPassword = await bcrypt.hash(password, 12);
-    const newUser = new User({ fullname, email, password: hashedPassword, role, branch: selectedBranch });
+    const newUser = new User({
+      fullname: (fullname || "").trim(),
+      email,
+      password: hashedPassword,
+      role: "user",
+      branch: selectedBranch
+    });
     await newUser.save();
     resetTwoFAAttempts(req, newUser._id);
-    pushFlash(req, res, "success", "Account created successfully");
-    res.redirect("/auth/login");
+    pushFlash(req, res, "success", "Account created successfully. Please sign in.");
+    return res.redirect("/auth/login");
   } catch (error) {
     pushFlash(req, res, "error", error.message || "Registration failed");
     res.redirect("/auth/register");
@@ -272,7 +283,6 @@ router.post("/login", loginLimiter, async (req, res) => {
       pushFlash(req, res, "error", "Account is deactivated");
       return res.redirect("/auth/login");
     }
-
     // Check suspension
     if (user.isSuspended()) {
       const msg = user.suspendedUntil

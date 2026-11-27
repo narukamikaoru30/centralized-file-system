@@ -15,7 +15,8 @@ const BRANCH_OPTIONS = require("../config/branches");
 const { requireAuth } = require("../middleware/authMiddleware");
 const { sendPushToUser } = require("../utils/pushNotify");
 const { getGlobalSystemSettings } = require("../utils/systemSettings");
-const { pushFlash, pullFlash } = require("../utils/sessionHelpers");
+const { pushFlash, pullFlash, ensureSessionId } = require("../utils/sessionHelpers");
+const { getSession, updateSession } = require("../utils/sessionStore");
 const { createStorageFilename, putObject, deleteObject } = require("../utils/objectStorage");
 const { createCsv } = require("../utils/csvExporter");
 
@@ -244,7 +245,7 @@ router.post("/invite/accept", registerLimiter, async (req, res) => {
     }).catch(() => {});
 
     pushFlash(req, res, "success", "Account created successfully. Please log in.");
-    res.redirect("/auth/login");
+    return res.redirect("/auth/login");
   } catch (error) {
     pushFlash(req, res, "error", error.message || "Registration failed");
     res.redirect("/auth/register");

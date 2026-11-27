@@ -284,8 +284,6 @@
     </div>
   </div>
 
-  <div id="actionToast" class="action-toast" aria-live="polite"></div>
-
   <!-- JS (enhanced logic) -->
   <script src="/vendor/chart.umd.js"></script>
   <script src="/js/requestHelpers.js"></script>
@@ -297,7 +295,6 @@
     }
 
     let pendingAction = null;
-    let actionToastTimer = null;
     let adminDisplayName = '<%= fullname || "Admin" %>';
     let adminAvatarFile = '<%= (typeof avatar !== "undefined" && avatar) ? avatar : "" %>';
     const initialSuccessMessage = <%- JSON.stringify(success || "") %>;
@@ -443,15 +440,7 @@
     }
 
     function showActionToast(message, type = 'info') {
-      const toast = document.getElementById('actionToast');
-      if (!toast) return;
-      toast.textContent = message;
-      toast.className = `action-toast ${type}`;
-      requestAnimationFrame(() => toast.classList.add('show'));
-      if (actionToastTimer) clearTimeout(actionToastTimer);
-      actionToastTimer = setTimeout(() => {
-        toast.classList.remove('show');
-      }, 3000);
+      if (typeof window.showToast === 'function') window.showToast(message, type, 3500);
     }
 
     function getExtensionCategory(filename) {

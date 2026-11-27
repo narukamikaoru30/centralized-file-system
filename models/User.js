@@ -35,6 +35,11 @@ const userSchema = new mongoose.Schema({
   totpLastUsedWindow: { type: Number, default: null },
   totpLastUsedCodeHash: { type: String, default: "" },
 
+  // New accounts are persisted only after email OTP verification. Default true
+  // preserves access for accounts created before this field existed.
+  emailVerified: { type: Boolean, default: true },
+  emailVerifiedAt: { type: Date, default: null },
+
   // Password reset
   resetToken: { type: String, default: "" },
   resetTokenExpires: { type: Date, default: null }
